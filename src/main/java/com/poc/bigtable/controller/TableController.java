@@ -1,0 +1,102 @@
+package com.poc.bigtable.controller;
+
+import com.poc.bigtable.model.*;
+import com.poc.bigtable.service.TableService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/v1/sessions")
+@CrossOrigin(origins = "*")
+public class TableController {
+    
+    @Autowired
+    private TableService tableService;
+    
+    @PostMapping("/{sessionId}/data")
+    public ResponseEntity<Map<String, String>> uploadData(
+            @PathVariable String sessionId,
+            @RequestBody Map<String, Object> payload) {
+        
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> data = (List<Map<String, Object>>) payload.get("data");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> schemaRaw = (List<Map<String, Object>>) payload.get("schema");
+        
+        List<ColumnDefinition> schema = schemaRaw.stream()
+            .map(this::convertToColumnDefinition)
+            .collect(Collectors.toList());
+        
+        tableService.loadData(sessionId, data, schema);
+        
+        return ResponseEntity.ok(Map.of(
+            "message", "Data uploaded successfully",
+            "implementation", tableService.getImplementationType(),
+            "rowCount", String.valueOf(data.size())
+        ));
+    }
+    
+    @PostMapping("/{sessionId}/query")
+    public ResponseEntity<TableQueryResponse> queryData(
+            @PathVariable String sessionId,
+            @Valid @RequestBody TableQueryRequest request) {
+        
+        TableQueryResponse response = tableService.query(request);
+        return ResponseEntity.ok(response);
+    }
+    
+    @GetMapping("/{sessionId}/schema")
+    public ResponseEntity<List<ColumnDefinition>> getSchema(@PathVariable String sessionId) {
+        List<ColumnDefinition> schema = tableService.getSchema(sessionId);
+        return ResponseEntity.ok(schema);
+    }
+    
+    @DeleteMapping("/{sessionId}/data")
+    public ResponseEntity<Map<String, String>> clearData(@PathVariable String sessionId) {
+        tableService.clearSession(sessionId);
+        return ResponseEntity.ok(Map.of("message", "Session data cleared"));
+    }
+    
+    @GetMapping("/{sessionId}/metrics")
+    public ResponseEntity<Map<String, Object>> getMetrics(@PathVariable String sessionId) {
+        Map<String, Object> metrics = tableService.getPerformanceMetrics(sessionId);
+        return ResponseEntity.ok(metrics);
+    }
+    
+    @GetMapping("/{sessionId}/status")
+    public ResponseEntity<Map<String, Object>> getSessionStatus(@PathVariable String sessionId) {
+        List<ColumnDefinition> schema = tableService.getSchema(sessionId);
+        boolean hasData = schema != null && !schema.isEmpty();
+        
+        return ResponseEntity.ok(Map.of(
+            "hasData", hasData,
+            "implementation", tableService.getImplementationType(),
+            "columnCount", hasData ? schema.size() : 0
+        ));
+    }
+    
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> health() {
+        return ResponseEntity.ok(Map.of(
+            "status", "UP",
+            "implementation", tableService.getImplementationType(),
+            "timestamp", System.currentTimeMillis()
+        ));
+    }
+    
+    private ColumnDefinition convertToColumnDefinition(Map<String, Object> map) {
+        String name = (String) map.get("name");
+        String typeStr = (String) map.get("type");
+        DataType type = DataType.valueOf(typeStr.toUpperCase());
+        boolean sortable = (Boolean) map.getOrDefault("sortable", true);
+        boolean filterable = (Boolean) map.getOrDefault("filterable", true);
+        boolean searchable = (Boolean) map.getOrDefault("searchable", true);
+        
+        return new ColumnDefinition(name, type, sortable, filterable, searchable);
+    }
+}

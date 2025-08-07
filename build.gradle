@@ -1,5 +1,7 @@
 plugins {
     id 'java'
+    id 'org.springframework.boot' version '3.2.0'
+    id 'io.spring.dependency-management' version '1.1.4'
     id 'application'
 }
 
@@ -14,5 +16,68 @@ java {
 }
 
 application {
-    mainClass = 'Main'
+    mainClass = 'com.poc.bigtable.BigTableApplication'
+    applicationDefaultJvmArgs = [
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '-Xmx4g',
+        '-Xms2g',
+        '-XX:+UseG1GC',
+        '-XX:MaxGCPauseMillis=200'
+    ]
+}
+
+dependencies {
+    // Spring Boot starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    
+    // H2 Database
+    implementation 'com.h2database:h2:2.2.224'
+    
+    // Apache Arrow
+    implementation 'org.apache.arrow:arrow-java-root:14.0.1'
+    implementation 'org.apache.arrow:arrow-vector:14.0.1'
+    implementation 'org.apache.arrow:arrow-memory-unsafe:14.0.1'
+    implementation 'org.apache.arrow:arrow-dataset:14.0.1'
+    
+    // JSON processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    
+    // API documentation
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
+    
+    // Utilities
+    implementation 'org.apache.commons:commons-lang3:3.13.0'
+    implementation 'org.apache.commons:commons-collections4:4.4'
+    
+    // Development tools
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    
+    // Testing
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    jvmArgs = [
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '-Xmx2g',
+        '-Xms1g'
+    ]
+}
+
+bootRun {
+    jvmArgs = [
+        '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '-Xmx4g',
+        '-Xms2g',
+        '-XX:+UseG1GC',
+        '-XX:MaxGCPauseMillis=200'
+    ]
 }
