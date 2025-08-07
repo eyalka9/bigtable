@@ -17,7 +17,7 @@ const DataTable = ({
   }
 
   // Get column names from first row
-  const columns = Object.keys(data[0]).filter(key => !key.startsWith('_'));
+  const columns = Object.keys(data[0]).filter(key => !key.startsWith('_'))
 
   const handlePrevPage = () => {
     if (currentPage > 0) {

@@ -1,5 +1,4 @@
 .app {
-  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }
@@ -75,11 +74,12 @@
   margin-top: 20px;
   border: 1px solid #ddd;
   border-radius: 5px;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
 }
 
