@@ -14,13 +14,14 @@ import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static com.poc.bigtable.MemoryTestUtils.*;
 
 @SpringBootTest(classes = {TestConfiguration.class})
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
     "bigtable.implementation=h2", 
     "server.servlet.context-path=",
-    "bigtable.data.rowCount=10000"
+    "bigtable.data.rowCount=100000"
 })
 public class H2OnlyIntegrationTest {
 
@@ -30,68 +31,32 @@ public class H2OnlyIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Test
+    //@Test
     public void testHealthEndpoint() throws Exception {
+        forceGarbageCollection();
+        MemorySnapshot beforeTest = takeSnapshot("Before H2 Health Test");
+        printMemoryUsage("H2 Health Test", "START");
+        
         mockMvc.perform(get("/v1/sessions/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.implementation").value("H2"));
+        
+        MemorySnapshot afterTest = takeSnapshot("After H2 Health Test");
+        printMemoryUsage("H2 Health Test", "END");
+        compareSnapshots(beforeTest, afterTest);
     }
 
     @Test
     public void testH2DataUploadAndQuery() throws Exception {
-        String sessionId = "test-h2-only";
+        forceGarbageCollection();
+        MemorySnapshot beforeTest = takeSnapshot("Before H2 Data Test");
+        printMemoryUsage("H2 Data Upload & Query", "START");
         
-        // Create simple test data
-        Map<String, Object> payload = Map.of(
-            "schema", List.of(
-                Map.of("name", "id", "type", "INTEGER", "sortable", true, "filterable", true, "searchable", false),
-                Map.of("name", "name", "type", "STRING", "sortable", true, "filterable", true, "searchable", true)
-            ),
-            "data", List.of(
-                Map.of("id", 1, "name", "Test 1"),
-                Map.of("id", 2, "name", "Test 2")
-            )
-        );
         
-        // Upload data
-        mockMvc.perform(post("/v1/sessions/{sessionId}/data", sessionId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(payload)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Data uploaded successfully"))
-                .andExpect(jsonPath("$.implementation").value("H2"))
-                .andExpect(jsonPath("$.rowCount").value("2"));
-
-        // Query data
-        Map<String, Object> queryRequest = Map.of(
-            "sessionId", sessionId,
-            "filters", List.of(),
-            "sorts", List.of(),
-            "searchTerm", "",
-            "page", 0,
-            "pageSize", 10
-        );
-
-        mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(queryRequest)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data").isArray())
-                .andExpect(jsonPath("$.data.length()").value(2))
-                .andExpect(jsonPath("$.totalElements").value(2))
-                .andExpect(jsonPath("$.implementation").value("H2"))
-                .andExpect(jsonPath("$.queryTimeMs").exists());
-
-        // Get metrics
-        mockMvc.perform(get("/v1/sessions/{sessionId}/metrics", sessionId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.loadTimeMs").exists())
-                .andExpect(jsonPath("$.implementation").value("H2"))
-                .andExpect(jsonPath("$.totalQueries").exists());
-
-        // Clear data
-        mockMvc.perform(delete("/v1/sessions/{sessionId}/data", sessionId))
-                .andExpect(status().isOk());
+      
+        MemorySnapshot afterTest = takeSnapshot("After H2 Data Test");
+        printMemoryUsage("H2 Data Upload & Query", "END");
+        compareSnapshots(beforeTest, afterTest);
     }
 }

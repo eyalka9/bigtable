@@ -36,7 +36,7 @@ public class DataGeneratorService {
         "initialized", "processing", "completed", "cancelled", "expired", "renewed", "activated", "deactivated", "suspended", "restored", "migrated", "synchronized", "optimized", "compressed", "encrypted", "decrypted", "validated", "verified", "authenticated", "authorized", "logged", "tracked", "monitored", "analyzed", "reported", "scheduled", "executed"
     };
     
-    public List<ColumnDefinition> generateSchema(int columnCount) {
+    public List<ColumnDefinition> generateSchema() {
         List<ColumnDefinition> schema = new ArrayList<>();
         
         // Fixed schema: 50 columns total

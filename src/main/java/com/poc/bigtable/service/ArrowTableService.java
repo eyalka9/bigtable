@@ -38,7 +38,7 @@ public class ArrowTableService implements TableService {
         // Allocate enough space for all rows
         for (FieldVector vector : root.getFieldVectors()) {
             if (vector instanceof BaseVariableWidthVector) {
-                ((BaseVariableWidthVector) vector).allocateNew(data.size() * 50, data.size()); // 50 bytes avg per string
+                ((BaseVariableWidthVector) vector).allocateNew(data.size() * 80, data.size()); // 80 bytes avg per string (handles long strings)
             } else {
                 vector.allocateNew();
                 vector.setValueCount(data.size());

@@ -14,13 +14,14 @@ import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static com.poc.bigtable.MemoryTestUtils.*;
 
 @SpringBootTest(classes = {TestConfiguration.class})
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
     "bigtable.implementation=arrow", 
     "server.servlet.context-path=",
-    "bigtable.data.rowCount=10000"
+    "bigtable.data.rowCount=100000"
 })
 public class ArrowTableControllerIntegrationTest {
 
@@ -32,6 +33,10 @@ public class ArrowTableControllerIntegrationTest {
 
     @Test
     public void testUploadDataAndQuery_Arrow() throws Exception {
+        forceGarbageCollection();
+        MemorySnapshot beforeTest = takeSnapshot("Before Arrow Test");
+        printMemoryUsage("Arrow Data Upload & Query", "START");
+        
         String sessionId = "test-session-arrow";
         
         // Prepare test data
@@ -107,6 +112,10 @@ public class ArrowTableControllerIntegrationTest {
         mockMvc.perform(delete("/v1/sessions/{sessionId}/data", sessionId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Session data cleared"));
+        
+        MemorySnapshot afterTest = takeSnapshot("After Arrow Test");
+        printMemoryUsage("Arrow Data Upload & Query", "END");
+        compareSnapshots(beforeTest, afterTest);
     }
 
     private Map<String, Object> createTestPayload() {

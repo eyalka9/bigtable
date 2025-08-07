@@ -29,21 +29,37 @@ public class H2TableService implements TableService {
     @Transactional
     public void loadData(String sessionId, List<Map<String, Object>> data, List<ColumnDefinition> schema) {
         long startTime = System.currentTimeMillis();
+        System.out.println("H2: Starting loadData - " + data.size() + " rows");
         
         // Clear existing data for session
+        long clearStart = System.currentTimeMillis();
         repository.deleteBySessionId(sessionId);
+        System.out.println("H2: Cleared session in " + (System.currentTimeMillis() - clearStart) + " ms");
         
         // Store schema
+        long schemaStart = System.currentTimeMillis();
         sessionSchemas.put(sessionId, schema);
+        System.out.println("H2: Stored schema in " + (System.currentTimeMillis() - schemaStart) + " ms");
         
-        // Convert and save data
+        // Convert and save data in batches of 2000
+        long convertStart = System.currentTimeMillis();
         List<TableRow> rows = data.stream()
             .map(row -> convertToTableRow(sessionId, row))
             .collect(Collectors.toList());
+        System.out.println("H2: Converted " + rows.size() + " rows in " + (System.currentTimeMillis() - convertStart) + " ms");
         
-        repository.saveAll(rows);
+        long saveStart = System.currentTimeMillis();
+        int batchSize = 2000;
+        for (int i = 0; i < rows.size(); i += batchSize) {
+            int endIndex = Math.min(i + batchSize, rows.size());
+            List<TableRow> batch = rows.subList(i, endIndex);
+            repository.saveAll(batch);
+            System.out.println("H2: Saved batch " + (i/batchSize + 1) + " - rows " + (i + 1) + " to " + endIndex + " of " + rows.size());
+        }
+        System.out.println("H2: All batches saved in " + (System.currentTimeMillis() - saveStart) + " ms");
         
         long loadTime = System.currentTimeMillis() - startTime;
+        System.out.println("H2: Total loadData time: " + loadTime + " ms");
         performanceMetrics.put(sessionId, Map.of(
             "loadTimeMs", loadTime,
             "rowCount", data.size(),

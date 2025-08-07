@@ -70,6 +70,11 @@ test {
         '-Xmx2g',
         '-Xms1g'
     ]
+    testLogging {
+        outputs.upToDateWhen { false }
+        showStandardStreams = true
+        events "standardOut", "standardError"
+    }
 }
 
 bootRun {

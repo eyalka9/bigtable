@@ -1,5 +1,4 @@
 # The table will be populated by the following data:
-total 50 columns
 10 string
 30 double
 5 boolean

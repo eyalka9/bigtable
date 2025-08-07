@@ -36,16 +36,21 @@ public class DataInitializer implements ApplicationRunner {
         
         try {
             // Generate schema
-            List<ColumnDefinition> schema = dataGeneratorService.generateSchema(50);
-            logger.info("Generated schema with {} columns", 50);
+            long schemaStart = System.currentTimeMillis();
+            List<ColumnDefinition> schema = dataGeneratorService.generateSchema();
+            logger.info("Generated schema with {} columns in {} ms", 50, (System.currentTimeMillis() - schemaStart));
             
             // Generate sample data
+            long dataGenStart = System.currentTimeMillis();
             logger.info("Generating {} rows of sample data...", rowCount);
             List<Map<String, Object>> data = dataGeneratorService.generateData(rowCount, schema);
+            logger.info("Generated {} rows in {} ms", rowCount, (System.currentTimeMillis() - dataGenStart));
             
             // Load data into the table service
+            long loadStart = System.currentTimeMillis();
             logger.info("Loading data into {} implementation...", tableService.getImplementationType());
             tableService.loadData(DEFAULT_SESSION_ID, data, schema);
+            logger.info("Loaded data in {} ms", (System.currentTimeMillis() - loadStart));
             
             long endTime = System.currentTimeMillis();
             logger.info("Data initialization completed in {} ms. Implementation: {}", 

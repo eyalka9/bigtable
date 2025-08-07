@@ -43,7 +43,7 @@ spring:
 
 # Custom application properties
 bigtable:
-  implementation: arrow  # Options: h2, arrow
+  implementation: h2  # Options: h2, arrow
   session:
     timeout-minutes: 30
   performance:
