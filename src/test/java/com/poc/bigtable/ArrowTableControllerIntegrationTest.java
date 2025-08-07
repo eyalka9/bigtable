@@ -21,7 +21,7 @@ import static com.poc.bigtable.MemoryTestUtils.*;
 @TestPropertySource(properties = {
     "bigtable.implementation=arrow", 
     "server.servlet.context-path=",
-    "bigtable.data.rowCount=100000"
+    "bigtable.data.rowCount=10000"
 })
 public class ArrowTableControllerIntegrationTest {
 

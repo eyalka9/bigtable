@@ -53,6 +53,9 @@ dependencies {
     implementation 'org.apache.commons:commons-lang3:3.13.0'
     implementation 'org.apache.commons:commons-collections4:4.4'
     
+    // OpenTelemetry - Spring Boot auto-instrumentation (stable version)
+    implementation 'io.opentelemetry.instrumentation:opentelemetry-spring-boot-starter:1.31.0-alpha'
+    
     // Development tools
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'

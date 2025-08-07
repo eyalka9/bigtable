@@ -76,7 +76,7 @@ public class TableController {
         return ResponseEntity.ok(Map.of(
             "hasData", hasData,
             "implementation", tableService.getImplementationType(),
-            "columnCount", hasData ? schema.size() : 0
+            "columnCount", (schema != null && hasData) ? schema.size() : 0
         ));
     }
     

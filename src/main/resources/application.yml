@@ -43,11 +43,34 @@ spring:
 
 # Custom application properties
 bigtable:
-  implementation: h2  # Options: h2, arrow
+  implementation: arrow  # Options: h2, arrow
   session:
     timeout-minutes: 30
   performance:
     metrics-enabled: true
+
+# OpenTelemetry Auto-Instrumentation
+otel:
+  traces:
+    exporter: otlp
+  metrics:
+    exporter: none  
+  logs:
+    exporter: none
+  exporter:
+    otlp:
+      endpoint: http://localhost:4317
+  service:
+    name: bigtable-poc
+  resource:
+    attributes:
+      service.name: bigtable-poc
+      service.version: 1.0.0
+  instrumentation:
+    spring-webmvc:
+      enabled: true
+    jdbc:
+      enabled: true
 
 # Logging configuration
 logging:

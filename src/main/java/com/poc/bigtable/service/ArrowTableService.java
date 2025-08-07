@@ -1,11 +1,15 @@
 package com.poc.bigtable.service;
 
 import com.poc.bigtable.model.*;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.Tracer;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -15,109 +19,207 @@ import java.util.stream.Collectors;
 @Service
 public class ArrowTableService implements TableService {
     
+    @Autowired
+    private OpenTelemetry openTelemetry;
+    
+    private Tracer tracer;
     private final RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
     private final Map<String, VectorSchemaRoot> sessionTables = new ConcurrentHashMap<>();
     private final Map<String, List<ColumnDefinition>> sessionSchemas = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> performanceMetrics = new ConcurrentHashMap<>();
     private final Map<String, List<Long>> queryTimes = new ConcurrentHashMap<>();
     
+    private Tracer getTracer() {
+        if (tracer == null) {
+            tracer = openTelemetry.getTracer("bigtable-poc", "1.0.0");
+        }
+        return tracer;
+    }
+    
     @Override
     public void loadData(String sessionId, List<Map<String, Object>> data, List<ColumnDefinition> schema) {
-        long startTime = System.currentTimeMillis();
+        Span span = getTracer().spanBuilder("arrow.loadData")
+                .setAttribute("sessionId", sessionId)
+                .setAttribute("rowCount", data.size())
+                .setAttribute("columnCount", schema.size())
+                .setAttribute("implementation", "Arrow")
+                .startSpan();
         
-        clearSession(sessionId);
-        sessionSchemas.put(sessionId, schema);
-        
-        if (data.isEmpty()) {
-            return;
-        }
-        
-        Schema arrowSchema = createArrowSchema(schema);
-        VectorSchemaRoot root = VectorSchemaRoot.create(arrowSchema, allocator);
-        
-        // Allocate enough space for all rows
-        for (FieldVector vector : root.getFieldVectors()) {
-            if (vector instanceof BaseVariableWidthVector) {
-                ((BaseVariableWidthVector) vector).allocateNew(data.size() * 80, data.size()); // 80 bytes avg per string (handles long strings)
-            } else {
-                vector.allocateNew();
-                vector.setValueCount(data.size());
-            }
-        }
-        
-        for (int rowIndex = 0; rowIndex < data.size(); rowIndex++) {
-            Map<String, Object> row = data.get(rowIndex);
+        try {
+            long startTime = System.currentTimeMillis();
             
-            for (int colIndex = 0; colIndex < schema.size(); colIndex++) {
-                ColumnDefinition colDef = schema.get(colIndex);
-                String columnName = colDef.getName();
-                Object value = row.get(columnName);
-                
-                FieldVector vector = root.getVector(colIndex);
-                setVectorValue(vector, rowIndex, value, colDef.getType());
+            Span clearSpan = getTracer().spanBuilder("arrow.clearSession").startSpan();
+            try {
+                clearSession(sessionId);
+                sessionSchemas.put(sessionId, schema);
+            } finally {
+                clearSpan.end();
             }
+            
+            if (data.isEmpty()) {
+                return;
+            }
+            
+            Span schemaSpan = getTracer().spanBuilder("arrow.createSchema").startSpan();
+            Schema arrowSchema;
+            VectorSchemaRoot root;
+            try {
+                arrowSchema = createArrowSchema(schema);
+                root = VectorSchemaRoot.create(arrowSchema, allocator);
+            } finally {
+                schemaSpan.end();
+            }
+            
+            Span allocateSpan = getTracer().spanBuilder("arrow.allocateVectors").startSpan();
+            try {
+                // Allocate enough space for all rows
+                for (FieldVector vector : root.getFieldVectors()) {
+                    if (vector instanceof BaseVariableWidthVector) {
+                        ((BaseVariableWidthVector) vector).allocateNew(data.size() * 80, data.size()); // 80 bytes avg per string (handles long strings)
+                    } else {
+                        vector.allocateNew();
+                        vector.setValueCount(data.size());
+                    }
+                }
+            } finally {
+                allocateSpan.end();
+            }
+            
+            Span populateSpan = getTracer().spanBuilder("arrow.populateVectors")
+                    .setAttribute("vectorOperations", data.size() * schema.size())
+                    .startSpan();
+            try {
+                for (int rowIndex = 0; rowIndex < data.size(); rowIndex++) {
+                    Map<String, Object> row = data.get(rowIndex);
+                    
+                    for (int colIndex = 0; colIndex < schema.size(); colIndex++) {
+                        ColumnDefinition colDef = schema.get(colIndex);
+                        String columnName = colDef.getName();
+                        Object value = row.get(columnName);
+                        
+                        FieldVector vector = root.getVector(colIndex);
+                        setVectorValue(vector, rowIndex, value, colDef.getType());
+                    }
+                }
+            } finally {
+                populateSpan.end();
+            }
+            
+            root.setRowCount(data.size());
+            sessionTables.put(sessionId, root);
+            
+            long loadTime = System.currentTimeMillis() - startTime;
+            span.setAttribute("loadTimeMs", loadTime);
+            performanceMetrics.put(sessionId, Map.of(
+                "loadTimeMs", loadTime,
+                "rowCount", data.size(),
+                "implementation", "Arrow"
+            ));
+        } finally {
+            span.end();
         }
-        
-        root.setRowCount(data.size());
-        sessionTables.put(sessionId, root);
-        
-        long loadTime = System.currentTimeMillis() - startTime;
-        performanceMetrics.put(sessionId, Map.of(
-            "loadTimeMs", loadTime,
-            "rowCount", data.size(),
-            "implementation", "Arrow"
-        ));
     }
     
     @Override
     public TableQueryResponse query(TableQueryRequest request) {
-        long startTime = System.currentTimeMillis();
+        Span span = getTracer().spanBuilder("arrow.query")
+                .setAttribute("sessionId", request.getSessionId())
+                .setAttribute("page", request.getPage())
+                .setAttribute("pageSize", request.getPageSize())
+                .setAttribute("hasSearch", request.getSearchTerm() != null && !request.getSearchTerm().trim().isEmpty())
+                .setAttribute("filterCount", request.getFilters() != null ? request.getFilters().size() : 0)
+                .setAttribute("sortCount", request.getSorts() != null ? request.getSorts().size() : 0)
+                .setAttribute("implementation", "Arrow")
+                .startSpan();
         
-        VectorSchemaRoot root = sessionTables.get(request.getSessionId());
-        if (root == null) {
+        try {
+            long startTime = System.currentTimeMillis();
+            
+            VectorSchemaRoot root = sessionTables.get(request.getSessionId());
+            if (root == null) {
+                span.setAttribute("dataFound", false);
+                return new TableQueryResponse(
+                    Collections.emptyList(), 0L, 0, 0, 0, 0L, "Arrow"
+                );
+            }
+            
+            span.setAttribute("dataFound", true);
+            span.setAttribute("vectorRowCount", root.getRowCount());
+            
+            Span extractSpan = getTracer().spanBuilder("arrow.extractData").startSpan();
+            List<Map<String, Object>> results;
+            try {
+                results = extractData(root);
+            } finally {
+                extractSpan.end();
+            }
+            
+            // Apply search filter if provided
+            if (request.getSearchTerm() != null && !request.getSearchTerm().trim().isEmpty()) {
+                Span searchSpan = getTracer().spanBuilder("arrow.applySearch")
+                        .setAttribute("searchTerm", request.getSearchTerm())
+                        .startSpan();
+                try {
+                    results = applySearchFilter(results, request.getSearchTerm(), request.getSessionId());
+                } finally {
+                    searchSpan.end();
+                }
+            }
+            
+            // Apply filters if provided
+            if (request.getFilters() != null && !request.getFilters().isEmpty()) {
+                Span filterSpan = getTracer().spanBuilder("arrow.applyFilters")
+                        .setAttribute("filterCount", request.getFilters().size())
+                        .startSpan();
+                try {
+                    results = applyFilters(results, request.getFilters());
+                } finally {
+                    filterSpan.end();
+                }
+            }
+            
+            // Apply sorting if provided
+            if (request.getSorts() != null && !request.getSorts().isEmpty()) {
+                Span sortSpan = getTracer().spanBuilder("arrow.applySorting")
+                        .setAttribute("sortCount", request.getSorts().size())
+                        .startSpan();
+                try {
+                    results = applySorting(results, request.getSorts());
+                } finally {
+                    sortSpan.end();
+                }
+            }
+            
+            // Apply pagination
+            Span paginationSpan = getTracer().spanBuilder("arrow.applyPagination").startSpan();
+            int totalRows = results.size();
+            int totalPages = (int) Math.ceil((double) totalRows / request.getPageSize());
+            int startIndex = request.getPage() * request.getPageSize();
+            int endIndex = Math.min(startIndex + request.getPageSize(), totalRows);
+            
+            List<Map<String, Object>> pageData = results.subList(startIndex, endIndex);
+            paginationSpan.end();
+            
+            long queryTime = System.currentTimeMillis() - startTime;
+            span.setAttribute("queryTimeMs", queryTime);
+            span.setAttribute("totalRows", totalRows);
+            span.setAttribute("returnedRows", pageData.size());
+            
+            // Track query time for statistics
+            queryTimes.computeIfAbsent(request.getSessionId(), k -> new ArrayList<>()).add(queryTime);
+            
             return new TableQueryResponse(
-                Collections.emptyList(), 0L, 0, 0, 0, 0L, "Arrow"
+                pageData,
+                (long) totalRows,
+                totalPages,
+                request.getPage(),
+                request.getPageSize(),
+                queryTime,
+                "Arrow"
             );
+        } finally {
+            span.end();
         }
-        
-        List<Map<String, Object>> results = extractData(root);
-        
-        // Apply search filter if provided
-        if (request.getSearchTerm() != null && !request.getSearchTerm().trim().isEmpty()) {
-            results = applySearchFilter(results, request.getSearchTerm(), request.getSessionId());
-        }
-        
-        // Apply filters if provided
-        if (request.getFilters() != null && !request.getFilters().isEmpty()) {
-            results = applyFilters(results, request.getFilters());
-        }
-        
-        // Apply sorting if provided
-        if (request.getSorts() != null && !request.getSorts().isEmpty()) {
-            results = applySorting(results, request.getSorts());
-        }
-        
-        int totalRows = results.size();
-        int totalPages = (int) Math.ceil((double) totalRows / request.getPageSize());
-        int startIndex = request.getPage() * request.getPageSize();
-        int endIndex = Math.min(startIndex + request.getPageSize(), totalRows);
-        
-        List<Map<String, Object>> pageData = results.subList(startIndex, endIndex);
-        
-        long queryTime = System.currentTimeMillis() - startTime;
-        
-        // Track query time for statistics
-        queryTimes.computeIfAbsent(request.getSessionId(), k -> new ArrayList<>()).add(queryTime);
-        
-        return new TableQueryResponse(
-            pageData,
-            (long) totalRows,
-            totalPages,
-            request.getPage(),
-            request.getPageSize(),
-            queryTime,
-            "Arrow"
-        );
     }
     
     @Override

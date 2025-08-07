@@ -2,6 +2,9 @@ package com.poc.bigtable.service;
 
 import com.poc.bigtable.model.*;
 import com.poc.bigtable.repository.TableRowRepository;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.Tracer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -21,102 +24,200 @@ public class H2TableService implements TableService {
     @Autowired
     private TableRowRepository repository;
     
+    @Autowired
+    private OpenTelemetry openTelemetry;
+    
+    private Tracer tracer;
     private final Map<String, List<ColumnDefinition>> sessionSchemas = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> performanceMetrics = new ConcurrentHashMap<>();
     private final Map<String, List<Long>> queryTimes = new ConcurrentHashMap<>();
     
+    private Tracer getTracer() {
+        if (tracer == null) {
+            tracer = openTelemetry.getTracer("bigtable-poc", "1.0.0");
+        }
+        return tracer;
+    }
+    
     @Override
     @Transactional
     public void loadData(String sessionId, List<Map<String, Object>> data, List<ColumnDefinition> schema) {
-        long startTime = System.currentTimeMillis();
-        System.out.println("H2: Starting loadData - " + data.size() + " rows");
+        Span span = getTracer().spanBuilder("h2.loadData")
+                .setAttribute("sessionId", sessionId)
+                .setAttribute("rowCount", data.size())
+                .setAttribute("columnCount", schema.size())
+                .setAttribute("implementation", "H2")
+                .startSpan();
         
-        // Clear existing data for session
-        long clearStart = System.currentTimeMillis();
-        repository.deleteBySessionId(sessionId);
-        System.out.println("H2: Cleared session in " + (System.currentTimeMillis() - clearStart) + " ms");
-        
-        // Store schema
-        long schemaStart = System.currentTimeMillis();
-        sessionSchemas.put(sessionId, schema);
-        System.out.println("H2: Stored schema in " + (System.currentTimeMillis() - schemaStart) + " ms");
-        
-        // Convert and save data in batches of 2000
-        long convertStart = System.currentTimeMillis();
-        List<TableRow> rows = data.stream()
-            .map(row -> convertToTableRow(sessionId, row))
-            .collect(Collectors.toList());
-        System.out.println("H2: Converted " + rows.size() + " rows in " + (System.currentTimeMillis() - convertStart) + " ms");
-        
-        long saveStart = System.currentTimeMillis();
-        int batchSize = 2000;
-        for (int i = 0; i < rows.size(); i += batchSize) {
-            int endIndex = Math.min(i + batchSize, rows.size());
-            List<TableRow> batch = rows.subList(i, endIndex);
-            repository.saveAll(batch);
-            System.out.println("H2: Saved batch " + (i/batchSize + 1) + " - rows " + (i + 1) + " to " + endIndex + " of " + rows.size());
+        try {
+            long startTime = System.currentTimeMillis();
+            System.out.println("H2: Starting loadData - " + data.size() + " rows");
+            
+            // Clear existing data for session
+            Span clearSpan = getTracer().spanBuilder("h2.clearSession").startSpan();
+            try {
+                long clearStart = System.currentTimeMillis();
+                repository.deleteBySessionId(sessionId);
+                System.out.println("H2: Cleared session in " + (System.currentTimeMillis() - clearStart) + " ms");
+            } finally {
+                clearSpan.end();
+            }
+            
+            // Store schema
+            Span schemaSpan = getTracer().spanBuilder("h2.storeSchema").startSpan();
+            try {
+                long schemaStart = System.currentTimeMillis();
+                sessionSchemas.put(sessionId, schema);
+                System.out.println("H2: Stored schema in " + (System.currentTimeMillis() - schemaStart) + " ms");
+            } finally {
+                schemaSpan.end();
+            }
+            
+            // Convert and save data in batches of 2000
+            Span convertSpan = getTracer().spanBuilder("h2.convertRows").startSpan();
+            List<TableRow> rows;
+            try {
+                long convertStart = System.currentTimeMillis();
+                rows = data.stream()
+                    .map(row -> convertToTableRow(sessionId, row))
+                    .collect(Collectors.toList());
+                System.out.println("H2: Converted " + rows.size() + " rows in " + (System.currentTimeMillis() - convertStart) + " ms");
+            } finally {
+                convertSpan.end();
+            }
+            
+            Span saveSpan = getTracer().spanBuilder("h2.saveBatches")
+                    .setAttribute("batchSize", 2000)
+                    .startSpan();
+            try {
+                long saveStart = System.currentTimeMillis();
+                int batchSize = 2000;
+                for (int i = 0; i < rows.size(); i += batchSize) {
+                    int endIndex = Math.min(i + batchSize, rows.size());
+                    List<TableRow> batch = rows.subList(i, endIndex);
+                    repository.saveAll(batch);
+                    System.out.println("H2: Saved batch " + (i/batchSize + 1) + " - rows " + (i + 1) + " to " + endIndex + " of " + rows.size());
+                }
+                System.out.println("H2: All batches saved in " + (System.currentTimeMillis() - saveStart) + " ms");
+            } finally {
+                saveSpan.end();
+            }
+            
+            long loadTime = System.currentTimeMillis() - startTime;
+            System.out.println("H2: Total loadData time: " + loadTime + " ms");
+            span.setAttribute("loadTimeMs", loadTime);
+            performanceMetrics.put(sessionId, Map.of(
+                "loadTimeMs", loadTime,
+                "rowCount", data.size(),
+                "implementation", "H2"
+            ));
+        } finally {
+            span.end();
         }
-        System.out.println("H2: All batches saved in " + (System.currentTimeMillis() - saveStart) + " ms");
-        
-        long loadTime = System.currentTimeMillis() - startTime;
-        System.out.println("H2: Total loadData time: " + loadTime + " ms");
-        performanceMetrics.put(sessionId, Map.of(
-            "loadTimeMs", loadTime,
-            "rowCount", data.size(),
-            "implementation", "H2"
-        ));
     }
     
     @Override
     public TableQueryResponse query(TableQueryRequest request) {
-        long startTime = System.currentTimeMillis();
+        Span span = getTracer().spanBuilder("h2.query")
+                .setAttribute("sessionId", request.getSessionId())
+                .setAttribute("page", request.getPage())
+                .setAttribute("pageSize", request.getPageSize())
+                .setAttribute("hasSearch", request.getSearchTerm() != null && !request.getSearchTerm().trim().isEmpty())
+                .setAttribute("filterCount", request.getFilters() != null ? request.getFilters().size() : 0)
+                .setAttribute("sortCount", request.getSorts() != null ? request.getSorts().size() : 0)
+                .setAttribute("implementation", "H2")
+                .startSpan();
         
-        // Get all data for the session first
-        Specification<TableRow> spec = buildSpecification(request);
-        List<TableRow> allRows = repository.findAll(spec);
-        
-        // Convert to data format
-        List<Map<String, Object>> allData = allRows.stream()
-            .map(this::convertFromTableRow)
-            .collect(Collectors.toList());
-        
-        // Apply search filter if provided
-        if (request.getSearchTerm() != null && !request.getSearchTerm().trim().isEmpty()) {
-            allData = applySearchFilter(allData, request.getSearchTerm(), request.getSessionId());
+        try {
+            long startTime = System.currentTimeMillis();
+            
+            // Get all data for the session first
+            Span dbSpan = getTracer().spanBuilder("h2.database.findAll").startSpan();
+            List<TableRow> allRows;
+            try {
+                Specification<TableRow> spec = buildSpecification(request);
+                allRows = repository.findAll(spec);
+            } finally {
+                dbSpan.end();
+            }
+            
+            // Convert to data format
+            Span convertSpan = getTracer().spanBuilder("h2.convertFromTableRow").startSpan();
+            List<Map<String, Object>> allData;
+            try {
+                allData = allRows.stream()
+                    .map(this::convertFromTableRow)
+                    .collect(Collectors.toList());
+            } finally {
+                convertSpan.end();
+            }
+            
+            // Apply search filter if provided
+            if (request.getSearchTerm() != null && !request.getSearchTerm().trim().isEmpty()) {
+                Span searchSpan = getTracer().spanBuilder("h2.applySearch")
+                        .setAttribute("searchTerm", request.getSearchTerm())
+                        .startSpan();
+                try {
+                    allData = applySearchFilter(allData, request.getSearchTerm(), request.getSessionId());
+                } finally {
+                    searchSpan.end();
+                }
+            }
+            
+            // Apply filters if provided
+            if (request.getFilters() != null && !request.getFilters().isEmpty()) {
+                Span filterSpan = getTracer().spanBuilder("h2.applyFilters")
+                        .setAttribute("filterCount", request.getFilters().size())
+                        .startSpan();
+                try {
+                    allData = applyFilters(allData, request.getFilters());
+                } finally {
+                    filterSpan.end();
+                }
+            }
+            
+            // Apply sorting if provided
+            if (request.getSorts() != null && !request.getSorts().isEmpty()) {
+                Span sortSpan = getTracer().spanBuilder("h2.applySorting")
+                        .setAttribute("sortCount", request.getSorts().size())
+                        .startSpan();
+                try {
+                    allData = applySorting(allData, request.getSorts());
+                } finally {
+                    sortSpan.end();
+                }
+            }
+            
+            // Apply pagination
+            Span paginationSpan = getTracer().spanBuilder("h2.applyPagination").startSpan();
+            int totalRows = allData.size();
+            int totalPages = (int) Math.ceil((double) totalRows / request.getPageSize());
+            int startIndex = request.getPage() * request.getPageSize();
+            int endIndex = Math.min(startIndex + request.getPageSize(), totalRows);
+            
+            List<Map<String, Object>> pageData = allData.subList(startIndex, endIndex);
+            paginationSpan.end();
+            
+            long queryTime = System.currentTimeMillis() - startTime;
+            span.setAttribute("queryTimeMs", queryTime);
+            span.setAttribute("totalRows", totalRows);
+            span.setAttribute("returnedRows", pageData.size());
+            
+            // Track query time for statistics
+            queryTimes.computeIfAbsent(request.getSessionId(), k -> new ArrayList<>()).add(queryTime);
+            
+            return new TableQueryResponse(
+                pageData,
+                (long) totalRows,
+                totalPages,
+                request.getPage(),
+                request.getPageSize(),
+                queryTime,
+                "H2"
+            );
+        } finally {
+            span.end();
         }
-        
-        // Apply filters if provided
-        if (request.getFilters() != null && !request.getFilters().isEmpty()) {
-            allData = applyFilters(allData, request.getFilters());
-        }
-        
-        // Apply sorting if provided
-        if (request.getSorts() != null && !request.getSorts().isEmpty()) {
-            allData = applySorting(allData, request.getSorts());
-        }
-        
-        // Apply pagination
-        int totalRows = allData.size();
-        int totalPages = (int) Math.ceil((double) totalRows / request.getPageSize());
-        int startIndex = request.getPage() * request.getPageSize();
-        int endIndex = Math.min(startIndex + request.getPageSize(), totalRows);
-        
-        List<Map<String, Object>> pageData = allData.subList(startIndex, endIndex);
-        
-        long queryTime = System.currentTimeMillis() - startTime;
-        
-        // Track query time for statistics
-        queryTimes.computeIfAbsent(request.getSessionId(), k -> new ArrayList<>()).add(queryTime);
-        
-        return new TableQueryResponse(
-            pageData,
-            (long) totalRows,
-            totalPages,
-            request.getPage(),
-            request.getPageSize(),
-            queryTime,
-            "H2"
-        );
     }
     
     @Override
