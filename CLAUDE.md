@@ -26,3 +26,5 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 # Memories
 - do only things when specifically asked for them
 - always run gradlew with --info as well
+- NEVER NEVER NEVER use those emoji icons anywhere
+- NEVER NEVER NEVER EVER NEVER use emoji. ANYWHERE

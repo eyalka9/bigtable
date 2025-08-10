@@ -74,6 +74,16 @@ const DataTableContainer = () => {
     setQueryParams(prev => ({ ...prev, page: newPage }));
   };
 
+  const handleExportTable = async () => {
+    try {
+      const result = await tableAPI.exportTable(sessionId);
+      alert(`Export successful!\nFile: ${result.fileName}\nPath: ${result.filePath}\nFormat: ${result.format}`);
+    } catch (error) {
+      console.error('Error exporting data:', error);
+      alert(`Export failed: ${error.response?.data?.message || error.message}`);
+    }
+  };
+
   if (error) {
     return (
       <div className="error">
@@ -92,6 +102,7 @@ const DataTableContainer = () => {
         queryParams={queryParams}
         isDataLoaded={isDataLoaded}
         sessionStatus={sessionStatus}
+        onExportTable={handleExportTable}
       />
 
       {isDataLoaded && schema && (

@@ -1,4 +1,4 @@
-export const generateSampleData = (rowCount = 100000, columnCount = 40) => {
+export const generateSampleData = (rowCount = 300000, columnCount = 40) => {
   // Define column schema
   const schema = [];
   const columnNames = [];

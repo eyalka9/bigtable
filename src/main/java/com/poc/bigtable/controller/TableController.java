@@ -89,6 +89,31 @@ public class TableController {
         ));
     }
     
+    @PostMapping("/{sessionId}/export")
+    public ResponseEntity<Map<String, Object>> exportTable(@PathVariable String sessionId) {
+        try {
+            String implementation = tableService.getImplementationType();
+            String fileExtension = implementation.equals("Arrow") ? ".arrow" : ".csv";
+            String fileName = "table_export_" + System.currentTimeMillis() + fileExtension;
+            String filePath = fileName;
+            
+            tableService.exportTableToFile(sessionId, filePath);
+            
+            return ResponseEntity.ok(Map.of(
+                "message", "Table exported successfully",
+                "fileName", fileName,
+                "filePath", filePath,
+                "implementation", implementation,
+                "format", implementation.equals("Arrow") ? "Arrow IPC" : "CSV"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                "error", "Export failed",
+                "message", e.getMessage()
+            ));
+        }
+    }
+    
     private ColumnDefinition convertToColumnDefinition(Map<String, Object> map) {
         String name = (String) map.get("name");
         String typeStr = (String) map.get("type");
@@ -97,6 +122,7 @@ public class TableController {
         boolean filterable = (Boolean) map.getOrDefault("filterable", true);
         boolean searchable = (Boolean) map.getOrDefault("searchable", true);
         
-        return new ColumnDefinition(name, type, sortable, filterable, searchable);
+        Integer width = (Integer) map.get("width");
+        return new ColumnDefinition(name, type, sortable, filterable, searchable, width);
     }
 }

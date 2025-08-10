@@ -9,19 +9,22 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static com.poc.bigtable.MemoryTestUtils.*;
+import com.poc.bigtable.MemoryTestUtils.PerformanceTimer;
+import com.poc.bigtable.service.ArrowTableService;
 
 @SpringBootTest(classes = {TestConfiguration.class})
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
     "bigtable.implementation=arrow", 
     "server.servlet.context-path=",
-    "bigtable.data.rowCount=10000"
+    "bigtable.data.rowCount=150000"
 })
 public class ArrowTableControllerIntegrationTest {
 
@@ -30,12 +33,16 @@ public class ArrowTableControllerIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+    
+    @Autowired
+    private ArrowTableService arrowTableService;
 
     @Test
     public void testUploadDataAndQuery_Arrow() throws Exception {
         forceGarbageCollection();
         MemorySnapshot beforeTest = takeSnapshot("Before Arrow Test");
         printMemoryUsage("Arrow Data Upload & Query", "START");
+        printArrowMemoryUsage(arrowTableService.getAllocator());
         
         String sessionId = "test-session-arrow";
         
@@ -115,7 +122,82 @@ public class ArrowTableControllerIntegrationTest {
         
         MemorySnapshot afterTest = takeSnapshot("After Arrow Test");
         printMemoryUsage("Arrow Data Upload & Query", "END");
+        printArrowMemoryUsage(arrowTableService.getAllocator());
         compareSnapshots(beforeTest, afterTest);
+    }
+    
+    @Test
+    public void testPerformanceBenchmarks_Arrow() throws Exception {
+        System.out.println("\n=== PERFORMANCE BENCHMARK TESTS ===");
+        
+        String sessionId = "default-session"; // Use pre-loaded 100k dataset
+        
+        // Test 1: Small queries (10 records)
+        System.out.println("\nSmall Query Tests (10 records):");
+        testQueryPerformance(sessionId, 10, "Basic 10 records", null, null, null);
+        testQueryPerformance(sessionId, 10, "10 records with sorting", 
+            List.of(Map.of("column", "double_1", "direction", "ASC")), null, null);
+        testQueryPerformance(sessionId, 10, "10 records with filtering", null,
+            List.of(Map.of("column", "int_1", "operation", "GREATER_THAN", "values", List.of(5000))), null);
+        testQueryPerformance(sessionId, 10, "10 records with search", null, null, "processed");
+        
+        // Test 2: Medium queries (100 records)  
+        System.out.println("\nMedium Query Tests (100 records):");
+        testQueryPerformance(sessionId, 100, "Basic 100 records", null, null, null);
+        testQueryPerformance(sessionId, 100, "100 records with sorting", 
+            List.of(Map.of("column", "string_1", "direction", "DESC")), null, null);
+        testQueryPerformance(sessionId, 100, "100 records with filtering", null,
+            List.of(Map.of("column", "double_1", "operation", "LESS_THAN", "values", List.of(500.0))), null);
+        testQueryPerformance(sessionId, 100, "100 records with complex filter", null,
+            List.of(
+                Map.of("column", "boolean_1", "operation", "EQUALS", "values", List.of(true)),
+                Map.of("column", "int_2", "operation", "GREATER_THAN", "values", List.of(2000))
+            ), null);
+            
+        // Test 3: Large queries (5000 records)
+        System.out.println("\nLarge Query Tests (5000 records):");
+        testQueryPerformance(sessionId, 5000, "Basic 5000 records", null, null, null);
+        testQueryPerformance(sessionId, 5000, "5000 records with sorting", 
+            List.of(Map.of("column", "double_2", "direction", "ASC")), null, null);
+        testQueryPerformance(sessionId, 5000, "5000 records with filtering", null,
+            List.of(Map.of("column", "string_2", "operation", "CONTAINS", "values", List.of("active"))), null);
+        testQueryPerformance(sessionId, 5000, "5000 records with multi-sort", 
+            List.of(
+                Map.of("column", "boolean_2", "direction", "DESC"),
+                Map.of("column", "int_3", "direction", "ASC")
+            ), null, null);
+            
+        System.out.println("\nPerformance benchmarks completed!");
+    }
+    
+    private void testQueryPerformance(String sessionId, int pageSize, String testName,
+                                     List<Map<String, Object>> sorts,
+                                     List<Map<String, Object>> filters,
+                                     String searchTerm) throws Exception {
+        
+        PerformanceTimer timer = startTimer(testName);
+        
+        Map<String, Object> queryRequest = new HashMap<>();
+        queryRequest.put("sessionId", sessionId);
+        queryRequest.put("filters", filters != null ? filters : List.of());
+        queryRequest.put("sorts", sorts != null ? sorts : List.of());
+        queryRequest.put("searchTerm", searchTerm != null ? searchTerm : "");
+        queryRequest.put("page", 0);
+        queryRequest.put("pageSize", pageSize);
+        
+        try {
+            mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(queryRequest)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").isArray())
+                    .andExpect(jsonPath("$.implementation").value("Arrow"));
+                    
+            timer.stop();
+        } catch (Exception e) {
+            System.out.println("FAILED: " + testName + " - " + e.getMessage());
+            throw e;
+        }
     }
 
     private Map<String, Object> createTestPayload() {

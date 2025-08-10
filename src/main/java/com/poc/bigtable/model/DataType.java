@@ -6,5 +6,6 @@ public enum DataType {
     DOUBLE,
     BOOLEAN,
     DATE,
-    TIMESTAMP
+    TIMESTAMP,
+    BINARY
 }

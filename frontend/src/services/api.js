@@ -45,6 +45,11 @@ export const tableAPI = {
     const response = await api.get('/sessions/health');
     return response.data;
   },
+
+  exportTable: async (sessionId) => {
+    const response = await api.post(`/sessions/${sessionId}/export`);
+    return response.data;
+  },
 };
 
 export default api;

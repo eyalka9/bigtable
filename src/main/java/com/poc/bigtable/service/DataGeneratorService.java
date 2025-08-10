@@ -4,7 +4,6 @@ import com.poc.bigtable.model.ColumnDefinition;
 import com.poc.bigtable.model.DataType;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
 import java.util.*;
 
 @Service
@@ -39,8 +38,8 @@ public class DataGeneratorService {
     public List<ColumnDefinition> generateSchema() {
         List<ColumnDefinition> schema = new ArrayList<>();
         
-        // Fixed schema: 50 columns total
-        // 10 string, 30 double, 5 boolean, 5 int, 2 very long string (50-70 chars)
+        // Fixed schema: 53 columns total
+        // 10 string, 30 double, 5 boolean, 5 int, 2 very long string (50-70 chars), 1 binary (1K)
         
         // 10 string columns
         for (int i = 0; i < 10; i++) {
@@ -49,7 +48,8 @@ public class DataGeneratorService {
                 DataType.STRING,
                 true,  // sortable
                 true,  // filterable
-                true   // searchable
+                true,  // searchable
+                80   // width (uses default 80)
             ));
         }
         
@@ -60,7 +60,8 @@ public class DataGeneratorService {
                 DataType.DOUBLE,
                 true,  // sortable
                 true,  // filterable
-                false  // not searchable
+                false, // not searchable
+                null   // width (no width for doubles)
             ));
         }
         
@@ -71,7 +72,8 @@ public class DataGeneratorService {
                 DataType.BOOLEAN,
                 true,  // sortable
                 true,  // filterable
-                false  // not searchable
+                false, // not searchable
+                null   // width (no width for booleans)
             ));
         }
         
@@ -82,7 +84,8 @@ public class DataGeneratorService {
                 DataType.INTEGER,
                 true,  // sortable
                 true,  // filterable
-                false  // not searchable
+                false, // not searchable
+                null   // width (no width for integers)
             ));
         }
         
@@ -93,9 +96,20 @@ public class DataGeneratorService {
                 DataType.STRING,
                 true,  // sortable
                 true,  // filterable
-                true   // searchable
+                true,  // searchable
+                80    // width (custom width for long strings)
             ));
         }
+        
+        // 1 binary column (1KB)
+        schema.add(new ColumnDefinition(
+            "binary_data",
+            DataType.BINARY,
+            false, // not sortable
+            false, // not filterable
+            false, // not searchable
+            1024   // width (uses default 1024)
+        ));
         
         return schema;
     }
@@ -128,6 +142,9 @@ public class DataGeneratorService {
                 
             case BOOLEAN:
                 return random.nextBoolean();
+                
+            case BINARY:
+                return generateBinaryData(random, 1024); // 1KB binary data
                 
             default: // STRING
                 // Check if this is a very long string column
@@ -164,5 +181,11 @@ public class DataGeneratorService {
         }
         
         return sb.toString();
+    }
+    
+    private byte[] generateBinaryData(Random random, int size) {
+        byte[] data = new byte[size];
+        random.nextBytes(data);
+        return data;
     }
 }

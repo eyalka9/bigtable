@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const TableControls = ({ onLoadSampleData, onQueryChange, queryParams, isDataLoaded, sessionStatus }) => {
+const TableControls = ({ onLoadSampleData, onQueryChange, queryParams, isDataLoaded, sessionStatus, onExportTable }) => {
   const [searchTerm, setSearchTerm] = useState(queryParams.searchTerm);
 
   const handleSearchChange = (e) => {
@@ -52,6 +52,10 @@ const TableControls = ({ onLoadSampleData, onQueryChange, queryParams, isDataLoa
               <option value={500}>500</option>
             </select>
           </div>
+          
+          <button onClick={onExportTable} style={{ backgroundColor: '#28a745' }}>
+            Export Table
+          </button>
         </>
       )}
     </div>

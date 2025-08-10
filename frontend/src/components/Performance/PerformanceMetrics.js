@@ -11,6 +11,9 @@ const PerformanceMetrics = ({ metrics }) => {
         return `${value}ms`;
       }
       if (key.includes('Memory') && key.includes('MB')) {
+        if (key === 'arrowLimitMB' && value === -1) {
+          return 'Unlimited';
+        }
         return `${value}MB`;
       }
       if (key.includes('Percent')) {
@@ -34,18 +37,23 @@ const PerformanceMetrics = ({ metrics }) => {
       'totalQueries': 'Total Queries',
       'rowCount': 'Row Count',
       'implementation': 'Implementation',
-      // Memory metrics
-      'totalMemoryMB': 'Total Memory',
-      'usedMemoryMB': 'Used Memory',
-      'freeMemoryMB': 'Free Memory',
-      'maxMemoryMB': 'Max Memory',
-      'memoryUsagePercent': 'Memory Usage'
+      // JVM Memory metrics
+      'totalMemoryMB': 'JVM Total Memory',
+      'usedMemoryMB': 'JVM Used Memory',
+      'freeMemoryMB': 'JVM Free Memory',
+      'maxMemoryMB': 'JVM Max Memory',
+      'memoryUsagePercent': 'JVM Memory Usage',
+      // Arrow off-heap memory metrics
+      'arrowAllocatedMB': 'Arrow Allocated',
+      'arrowPeakMB': 'Arrow Peak',
+      'arrowLimitMB': 'Arrow Limit',
+      'totalMemoryUsedMB': 'Total Memory Used'
     };
     return labels[key] || key;
   };
 
   const getMetricCategory = (key) => {
-    if (key.includes('Memory') || key.includes('memoryUsage')) return 'memory';
+    if (key.includes('Memory') || key.includes('memoryUsage') || key.includes('arrow')) return 'memory';
     if (key.includes('Time') || key.includes('Ms') || key === 'totalQueries') return 'performance';
     return 'general';
   };
@@ -60,7 +68,7 @@ const PerformanceMetrics = ({ metrics }) => {
   const categoryTitles = {
     general: 'General',
     performance: 'Query Performance',
-    memory: 'Memory Statistics'
+    memory: 'Memory Statistics (JVM + Arrow Off-Heap)'
   };
 
   return (
@@ -75,7 +83,7 @@ const PerformanceMetrics = ({ metrics }) => {
                 padding: '8px', 
                 border: '1px solid #ddd', 
                 borderRadius: '4px',
-                backgroundColor: category === 'memory' ? '#f8f9ff' : '#fff'
+                backgroundColor: key.includes('arrow') ? '#ffe6e6' : category === 'memory' ? '#f8f9ff' : '#fff'
               }}>
                 <strong>{getMetricLabel(key)}:</strong> {formatMetric(key, value)}
               </div>

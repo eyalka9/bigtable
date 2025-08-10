@@ -23,7 +23,7 @@ public class DataInitializer implements ApplicationRunner {
     private static final Logger logger = LoggerFactory.getLogger(DataInitializer.class);
     private static final String DEFAULT_SESSION_ID = "default-session";
     
-    @Value("${bigtable.data.rowCount:100000}")
+    @Value("${bigtable.data.rowCount:150000}")
     private int rowCount;
     
     @Autowired
@@ -62,7 +62,7 @@ public class DataInitializer implements ApplicationRunner {
             try {
                 long schemaStart = System.currentTimeMillis();
                 schema = dataGeneratorService.generateSchema();
-                logger.info("Generated schema with {} columns in {} ms", 50, (System.currentTimeMillis() - schemaStart));
+                logger.info("Generated schema with {} columns in {} ms", schema.size(), (System.currentTimeMillis() - schemaStart));
             } finally {
                 schemaSpan.end();
             }
@@ -82,17 +82,51 @@ public class DataInitializer implements ApplicationRunner {
                 dataGenSpan.end();
             }
             
-            // Load data into the table service
-            Span loadSpan = getTracer().spanBuilder("dataInitializer.loadData")
+            // Create schema first
+            Span schemaCreateSpan = getTracer().spanBuilder("dataInitializer.createSchema")
                     .setAttribute("implementation", tableService.getImplementationType())
                     .startSpan();
             try {
-                long loadStart = System.currentTimeMillis();
-                logger.info("Loading data into {} implementation...", tableService.getImplementationType());
-                tableService.loadData(DEFAULT_SESSION_ID, data, schema);
-                logger.info("Loaded data in {} ms", (System.currentTimeMillis() - loadStart));
+                long schemaCreateStart = System.currentTimeMillis();
+                logger.info("Creating schema in {} implementation...", tableService.getImplementationType());
+                tableService.createSchema(DEFAULT_SESSION_ID, schema);
+                logger.info("Created schema in {} ms", (System.currentTimeMillis() - schemaCreateStart));
             } finally {
-                loadSpan.end();
+                schemaCreateSpan.end();
+            }
+            
+            // Then populate data in chunks
+            Span populateSpan = getTracer().spanBuilder("dataInitializer.populateData")
+                    .setAttribute("implementation", tableService.getImplementationType())
+                    .setAttribute("totalRows", data.size())
+                    .startSpan();
+            try {
+                long populateStart = System.currentTimeMillis();
+                logger.info("Populating {} rows into {} implementation in 50K chunks...", 
+                           data.size(), tableService.getImplementationType());
+                
+                int chunkSize = 10000;
+                int totalChunks = (int) Math.ceil((double) data.size() / chunkSize);
+                
+                for (int chunk = 0; chunk < totalChunks; chunk++) {
+                    int startIndex = chunk * chunkSize;
+                    int endIndex = Math.min(startIndex + chunkSize, data.size());
+                    
+                    List<Map<String, Object>> chunkData = data.subList(startIndex, endIndex);
+                    long chunkStart = System.currentTimeMillis();
+                    
+                    tableService.populateData(DEFAULT_SESSION_ID, chunkData);
+                    
+                    long chunkTime = System.currentTimeMillis() - chunkStart;
+                    logger.info("Populated chunk {}/{}: rows {}-{} ({} rows) in {} ms", 
+                               chunk + 1, totalChunks, startIndex, endIndex - 1, 
+                               chunkData.size(), chunkTime);
+                }
+                
+                long totalPopulateTime = System.currentTimeMillis() - populateStart;
+                logger.info("Populated all {} rows in {} ms", data.size(), totalPopulateTime);
+            } finally {
+                populateSpan.end();
             }
             
             long endTime = System.currentTimeMillis();
@@ -100,7 +134,7 @@ public class DataInitializer implements ApplicationRunner {
             span.setAttribute("totalTimeMs", totalTime);
             logger.info("Data initialization completed in {} ms. Implementation: {}", 
                        totalTime, tableService.getImplementationType());
-            logger.info("Dataset ready: {} rows × {} columns", rowCount, 50);
+            logger.info("Dataset ready: {} rows × {} columns", rowCount, schema.size());
             
         } catch (Exception e) {
             span.recordException(e);

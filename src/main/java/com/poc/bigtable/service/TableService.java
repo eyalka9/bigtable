@@ -8,6 +8,10 @@ public interface TableService {
     
     void loadData(String sessionId, List<Map<String, Object>> data, List<ColumnDefinition> schema);
     
+    void createSchema(String sessionId, List<ColumnDefinition> schema);
+    
+    void populateData(String sessionId, List<Map<String, Object>> data);
+    
     TableQueryResponse query(TableQueryRequest request);
     
     List<ColumnDefinition> getSchema(String sessionId);
@@ -17,4 +21,6 @@ public interface TableService {
     Map<String, Object> getPerformanceMetrics(String sessionId);
     
     String getImplementationType();
+    
+    void exportTableToFile(String sessionId, String filePath);
 }

@@ -1,7 +1,6 @@
 package com.poc.bigtable.config;
 
 import com.poc.bigtable.service.TableService;
-import com.poc.bigtable.service.H2TableService;
 import com.poc.bigtable.service.ArrowTableService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -19,10 +18,8 @@ public class ApplicationConfig {
     public TableService tableService() {
         switch (implementation.toLowerCase()) {
             case "arrow":
-                return new ArrowTableService();
-            case "h2":
             default:
-                return new H2TableService();
+                return new ArrowTableService();
         }
     }
 }
