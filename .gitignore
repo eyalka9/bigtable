@@ -112,3 +112,6 @@ temp/
 # OS generated files
 Thumbs.db
 ehthumbs.db
+
+# Arrow files
+*.arrow
