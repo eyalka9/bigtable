@@ -56,6 +56,11 @@ export const tableAPI = {
     return response.data;
   },
 
+  getAllSessions: async () => {
+    const response = await api.get('/sessions/');
+    return response.data;
+  },
+
   exportTable: async (sessionId) => {
     const response = await api.post(`/sessions/${sessionId}/export`);
     return response.data;

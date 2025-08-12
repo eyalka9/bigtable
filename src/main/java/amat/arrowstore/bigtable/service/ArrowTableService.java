@@ -7,7 +7,6 @@ import io.opentelemetry.api.trace.Tracer;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.ipc.ArrowFileWriter;
-import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -734,6 +733,11 @@ public class ArrowTableService implements TableService {
         } catch (Exception e) {
             return false;
         }
+    }
+    
+    @Override
+    public List<String> getAllSessionIds() {
+        return new ArrayList<>(sessionTables.keySet());
     }
     
     private int compareValues(Object value1, Object value2) {

@@ -22,6 +22,7 @@ public class DataInitializer implements ApplicationRunner {
     
     private static final Logger logger = LoggerFactory.getLogger(DataInitializer.class);
     private static final String DEFAULT_SESSION_ID = "default-session";
+    private static final String SMALL_SESSION_ID = "small-session";
     
     @Value("${bigtable.data.rowCount:150000}")
     private int rowCount;
@@ -129,12 +130,29 @@ public class DataInitializer implements ApplicationRunner {
                 populateSpan.end();
             }
             
+            // Create a smaller session with 1000 rows
+            logger.info("Creating small session with 1000 rows...");
+            long smallSessionStart = System.currentTimeMillis();
+            
+            // Generate 1000 rows of data using the same schema
+            List<Map<String, Object>> smallData = dataGeneratorService.generateData(1000, schema);
+            
+            // Create schema for small session
+            tableService.createSchema(SMALL_SESSION_ID, schema);
+            
+            // Populate small session data
+            tableService.populateData(SMALL_SESSION_ID, smallData);
+            
+            long smallSessionTime = System.currentTimeMillis() - smallSessionStart;
+            logger.info("Small session created with 1000 rows in {} ms", smallSessionTime);
+            
             long endTime = System.currentTimeMillis();
             long totalTime = endTime - startTime;
             span.setAttribute("totalTimeMs", totalTime);
             logger.info("Data initialization completed in {} ms. Implementation: {}", 
                        totalTime, tableService.getImplementationType());
-            logger.info("Dataset ready: {} rows × {} columns", rowCount, schema.size());
+            logger.info("Main dataset ready: {} rows × {} columns", rowCount, schema.size());
+            logger.info("Small dataset ready: 1000 rows × {} columns", schema.size());
             
         } catch (Exception e) {
             span.recordException(e);

@@ -90,6 +90,12 @@ public class TableController {
         ));
     }
     
+    @GetMapping("/")
+    public ResponseEntity<List<String>> getAllSessions() {
+        List<String> sessionIds = tableService.getAllSessionIds();
+        return ResponseEntity.ok(sessionIds);
+    }
+    
     @PostMapping("/{sessionId}/export")
     public ResponseEntity<Map<String, Object>> exportTable(@PathVariable String sessionId) {
         try {

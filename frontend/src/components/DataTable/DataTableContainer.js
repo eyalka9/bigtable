@@ -7,8 +7,7 @@ import PerformanceMetrics from '../Performance/PerformanceMetrics';
 import { tableAPI } from '../../services/api';
 import { generateSampleData } from '../../utils/sampleData';
 
-const DataTableContainer = () => {
-  const [sessionId] = useState('default-session'); // Use default session that backend pre-loads
+const DataTableContainer = ({ sessionId = 'default-session' }) => {
   const [queryParams, setQueryParams] = useState({
     filters: [],
     sorts: [],

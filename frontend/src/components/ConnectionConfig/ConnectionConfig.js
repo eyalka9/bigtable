@@ -1,14 +1,46 @@
 import React, { useState, useEffect } from 'react';
+import { tableAPI } from '../../services/api';
 import './ConnectionConfig.css';
 
-const ConnectionConfig = ({ onConnectionChange, isConnected }) => {
+const ConnectionConfig = ({ onConnectionChange, onSessionChange, isConnected }) => {
   const [host, setHost] = useState('localhost');
   const [port, setPort] = useState('8080');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [selectedSession, setSelectedSession] = useState('');
 
   useEffect(() => {
     onConnectionChange(host, port);
   }, []);
+
+  useEffect(() => {
+    if (isConnected) {
+      loadSessions();
+    }
+  }, [isConnected]);
+
+  useEffect(() => {
+    if (selectedSession && onSessionChange) {
+      onSessionChange(selectedSession);
+    }
+  }, [selectedSession, onSessionChange]);
+
+  const loadSessions = async () => {
+    try {
+      const sessionList = await tableAPI.getAllSessions();
+      setSessions(sessionList);
+      if (sessionList.length > 0 && !selectedSession) {
+        const firstSession = sessionList[0];
+        setSelectedSession(firstSession);
+        if (onSessionChange) {
+          onSessionChange(firstSession);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
+      setSessions([]);
+    }
+  };
 
   const handleApply = () => {
     onConnectionChange(host, port);
@@ -29,6 +61,22 @@ const ConnectionConfig = ({ onConnectionChange, isConnected }) => {
         <div className="connection-details">
           {host}:{port}
         </div>
+        {isConnected && sessions.length > 0 && (
+          <div className="session-selector">
+            <label htmlFor="session-select">Session:</label>
+            <select 
+              id="session-select" 
+              value={selectedSession} 
+              onChange={(e) => setSelectedSession(e.target.value)}
+            >
+              {sessions.map(sessionId => (
+                <option key={sessionId} value={sessionId}>
+                  {sessionId}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <button 
           className="config-toggle"
           onClick={() => setIsExpanded(!isExpanded)}

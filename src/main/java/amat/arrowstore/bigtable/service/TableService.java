@@ -23,4 +23,6 @@ public interface TableService {
     void exportTableToFile(String sessionId, String filePath);
     
     boolean updateFieldValue(String sessionId, String recordId, String fieldName, Object newValue);
+    
+    List<String> getAllSessionIds();
 }

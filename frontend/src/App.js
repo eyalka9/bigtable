@@ -16,6 +16,7 @@ const queryClient = new QueryClient({
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
+  const [selectedSession, setSelectedSession] = useState('');
 
   const handleConnectionChange = async (host, port) => {
     try {
@@ -28,6 +29,10 @@ function App() {
     }
   };
 
+  const handleSessionChange = (sessionId) => {
+    setSelectedSession(sessionId);
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <div className="app">
@@ -37,9 +42,10 @@ function App() {
         </header>
         <ConnectionConfig 
           onConnectionChange={handleConnectionChange}
+          onSessionChange={handleSessionChange}
           isConnected={isConnected}
         />
-        {isConnected && <DataTableContainer />}
+        {isConnected && selectedSession && <DataTableContainer sessionId={selectedSession} />}
       </div>
     </QueryClientProvider>
   );
