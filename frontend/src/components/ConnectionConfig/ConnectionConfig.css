@@ -1,0 +1,113 @@
+.connection-config {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 20px;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-indicator {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.status-indicator.connected {
+  background: #d1edff;
+  color: #0969da;
+}
+
+.status-indicator.disconnected {
+  background: #ffeaea;
+  color: #d1242f;
+}
+
+.connection-details {
+  font-family: monospace;
+  font-weight: bold;
+  color: #656d76;
+}
+
+.config-toggle {
+  background: #0969da;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.config-toggle:hover {
+  background: #0550ae;
+}
+
+.connection-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #dee2e6;
+}
+
+.form-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.form-group label {
+  min-width: 60px;
+  font-weight: 500;
+}
+
+.form-group input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.reset-btn {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.reset-btn:hover {
+  background: #5c636a;
+}
+
+.apply-btn {
+  background: #198754;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.apply-btn:hover {
+  background: #157347;
+}

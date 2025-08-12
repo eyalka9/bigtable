@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import DataTableContainer from './components/DataTable/DataTableContainer';
+import ConnectionConfig from './components/ConnectionConfig/ConnectionConfig';
+import { updateApiBaseUrl, tableAPI } from './services/api';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -13,6 +15,19 @@ const queryClient = new QueryClient({
 });
 
 function App() {
+  const [isConnected, setIsConnected] = useState(false);
+
+  const handleConnectionChange = async (host, port) => {
+    try {
+      updateApiBaseUrl(host, port);
+      await tableAPI.health();
+      setIsConnected(true);
+    } catch (error) {
+      console.error('Connection failed:', error);
+      setIsConnected(false);
+    }
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <div className="app">
@@ -20,7 +35,11 @@ function App() {
           <h1>BigTable POC - Performance Comparison</h1>
           <p>Comparing H2 Database vs Apache Arrow for large dataset operations</p>
         </header>
-        <DataTableContainer />
+        <ConnectionConfig 
+          onConnectionChange={handleConnectionChange}
+          isConnected={isConnected}
+        />
+        {isConnected && <DataTableContainer />}
       </div>
     </QueryClientProvider>
   );

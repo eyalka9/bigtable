@@ -1,11 +1,21 @@
 import axios from 'axios';
 
-const api = axios.create({
+let api = axios.create({
   baseURL: '/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+export const updateApiBaseUrl = (host, port) => {
+  const baseURL = `http://${host}:${port}/api/v1`;
+  api = axios.create({
+    baseURL,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+};
 
 export const tableAPI = {
   uploadData: async (sessionId, data, schema) => {
