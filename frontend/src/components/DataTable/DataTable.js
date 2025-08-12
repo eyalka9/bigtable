@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const DataTable = ({
   data,
@@ -11,7 +11,12 @@ const DataTable = ({
   queryTime,
   queryParams,
   onQueryChange,
+  onUpdateField,
+  sessionId,
 }) => {
+  const [editingCell, setEditingCell] = useState(null);
+  const [editValue, setEditValue] = useState('');
+
   if (!data || data.length === 0) {
     return <div className="loading">No data available</div>;
   }
@@ -71,6 +76,98 @@ const DataTable = ({
     return '';
   };
 
+  const handleCellDoubleClick = (rowIndex, columnName, currentValue) => {
+    const row = data[rowIndex];
+    const recordId = row.id || row._id;
+    if (!recordId) {
+      console.warn('No ID found for row:', row);
+      return;
+    }
+    
+    setEditingCell(`${recordId}-${columnName}`);
+    setEditValue(currentValue || '');
+  };
+
+  const handleCellEdit = (e) => {
+    if (e.key === 'Enter') {
+      saveCellEdit();
+    } else if (e.key === 'Escape') {
+      cancelCellEdit();
+    }
+  };
+
+  const saveCellEdit = async () => {
+    if (!editingCell) return;
+    
+    const [recordId, fieldName] = editingCell.split('-');
+    
+    // Basic validation
+    if (editValue.trim() === '') {
+      alert('Value cannot be empty');
+      return;
+    }
+    
+    try {
+      if (onUpdateField) {
+        await onUpdateField(sessionId, recordId, fieldName, editValue.trim());
+      }
+      setEditingCell(null);
+      setEditValue('');
+    } catch (error) {
+      console.error('Failed to update field:', error);
+      let errorMessage = 'Failed to update field';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      alert(`Update failed: ${errorMessage}`);
+    }
+  };
+
+  const cancelCellEdit = () => {
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  const renderCell = (row, column, rowIndex) => {
+    const recordId = row.id || row._id;
+    const cellKey = `${recordId}-${column}`;
+    const isEditing = editingCell === cellKey;
+    const cellValue = row[column];
+
+    if (isEditing) {
+      return (
+        <input
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleCellEdit}
+          onBlur={saveCellEdit}
+          autoFocus
+          style={{
+            width: '100%',
+            border: '1px solid #007bff',
+            padding: '2px 4px',
+            fontSize: 'inherit'
+          }}
+        />
+      );
+    }
+
+    return (
+      <span
+        onDoubleClick={() => handleCellDoubleClick(rowIndex, column, cellValue)}
+        style={{ cursor: 'pointer', display: 'block', padding: '4px' }}
+        title="Double-click to edit"
+      >
+        {cellValue}
+      </span>
+    );
+  };
+
   return (
     <div className="table-container">
       <div style={{ padding: '10px', backgroundColor: '#f0f0f0', fontSize: '12px' }}>
@@ -102,7 +199,9 @@ const DataTable = ({
           {data.map((row, index) => (
             <tr key={row._id || index}>
               {columns.map(column => (
-                <td key={column}>{row[column]}</td>
+                <td key={column}>
+                  {renderCell(row, column, index)}
+                </td>
               ))}
             </tr>
           ))}

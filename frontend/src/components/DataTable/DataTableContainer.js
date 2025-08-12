@@ -84,6 +84,16 @@ const DataTableContainer = () => {
     }
   };
 
+  const handleUpdateField = async (sessionId, recordId, fieldName, newValue) => {
+    try {
+      await tableAPI.updateField(sessionId, recordId, fieldName, newValue);
+      refetch(); // Refresh the data to show the updated value
+    } catch (error) {
+      console.error('Error updating field:', error);
+      throw error;
+    }
+  };
+
   if (error) {
     return (
       <div className="error">
@@ -127,6 +137,8 @@ const DataTableContainer = () => {
           queryTime={tableData.queryTimeMs}
           queryParams={queryParams}
           onQueryChange={handleQueryChange}
+          onUpdateField={handleUpdateField}
+          sessionId={sessionId}
         />
       )}
       

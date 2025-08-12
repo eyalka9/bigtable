@@ -38,6 +38,16 @@ public class DataGeneratorService {
     public List<ColumnDefinition> generateSchema() {
         List<ColumnDefinition> schema = new ArrayList<>();
         
+        // Add row_id as the first column
+        schema.add(new ColumnDefinition(
+            "id",
+            DataType.INTEGER,
+            true,  // sortable
+            true,  // filterable
+            false, // not searchable
+            null   // width
+        ));
+        
         // Fixed schema: 53 columns total
         // 10 string, 30 double, 5 boolean, 5 int, 2 very long string (50-70 chars), 1 binary (1K)
         
@@ -122,7 +132,12 @@ public class DataGeneratorService {
             Map<String, Object> rowData = new HashMap<>();
             
             for (ColumnDefinition column : schema) {
-                Object value = generateValueForColumn(column, random);
+                Object value;
+                if (column.getName().equals("id")) {
+                    value = row + 1; // Generate sequential IDs starting from 1
+                } else {
+                    value = generateValueForColumn(column, random);
+                }
                 rowData.put(column.getName(), value);
             }
             

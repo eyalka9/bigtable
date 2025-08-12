@@ -32,7 +32,8 @@ public class TableController {
             .map(this::convertToColumnDefinition)
             .collect(Collectors.toList());
         
-        tableService.loadData(sessionId, data, schema);
+        tableService.createSchema(sessionId, schema);
+        tableService.populateData(sessionId, data);
         
         return ResponseEntity.ok(Map.of(
             "message", "Data uploaded successfully",
@@ -109,6 +110,40 @@ public class TableController {
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of(
                 "error", "Export failed",
+                "message", e.getMessage()
+            ));
+        }
+    }
+    
+    @PutMapping("/{sessionId}/record/{recordId}/field/{fieldName}")
+    public ResponseEntity<Map<String, Object>> updateFieldValue(
+            @PathVariable String sessionId,
+            @PathVariable String recordId,
+            @PathVariable String fieldName,
+            @RequestBody Map<String, Object> payload) {
+        
+        Object newValue = payload.get("value");
+        
+        try {
+            boolean success = tableService.updateFieldValue(sessionId, recordId, fieldName, newValue);
+            
+            if (success) {
+                return ResponseEntity.ok(Map.of(
+                    "message", "Field updated successfully",
+                    "recordId", recordId,
+                    "fieldName", fieldName,
+                    "newValue", newValue
+                ));
+            } else {
+                return ResponseEntity.status(404).body(Map.of(
+                    "error", "Record not found or update failed",
+                    "recordId", recordId,
+                    "fieldName", fieldName
+                ));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                "error", "Update failed",
                 "message", e.getMessage()
             ));
         }

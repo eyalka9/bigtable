@@ -50,6 +50,13 @@ export const tableAPI = {
     const response = await api.post(`/sessions/${sessionId}/export`);
     return response.data;
   },
+
+  updateField: async (sessionId, recordId, fieldName, newValue) => {
+    const response = await api.put(`/sessions/${sessionId}/record/${recordId}/field/${fieldName}`, {
+      value: newValue,
+    });
+    return response.data;
+  },
 };
 
 export default api;

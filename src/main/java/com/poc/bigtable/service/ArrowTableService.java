@@ -42,24 +42,6 @@ public class ArrowTableService implements TableService {
     }
     
     @Override
-    public void loadData(String sessionId, List<Map<String, Object>> data, List<ColumnDefinition> schema) {
-        Span span = getTracer().spanBuilder("arrow.loadData")
-                .setAttribute("sessionId", sessionId)
-                .setAttribute("rowCount", data.size())
-                .setAttribute("columnCount", schema.size())
-                .setAttribute("implementation", "Arrow")
-                .startSpan();
-        
-        try {
-            // Use the new separated methods for backward compatibility
-            createSchema(sessionId, schema);
-            populateData(sessionId, data);
-        } finally {
-            span.end();
-        }
-    }
-    
-    @Override
     public void createSchema(String sessionId, List<ColumnDefinition> schema) {
         Span span = getTracer().spanBuilder("arrow.createSchema")
                 .setAttribute("sessionId", sessionId)
@@ -699,6 +681,60 @@ public class ArrowTableService implements TableService {
         return vector.getObject(index);
     }
     
+    
+    @Override
+    public boolean updateFieldValue(String sessionId, String recordId, String fieldName, Object newValue) {
+        VectorSchemaRoot root = sessionTables.get(sessionId);
+        if (root == null) {
+            return false;
+        }
+        
+        // Find the field vector
+        FieldVector fieldVector = root.getVector(fieldName);
+        if (fieldVector == null) {
+            return false;
+        }
+        
+        // Find the record by ID
+        FieldVector idVector = root.getVector("id");
+        if (idVector == null) {
+            return false;
+        }
+        
+        int recordIndex = -1;
+        for (int i = 0; i < idVector.getValueCount(); i++) {
+            Object currentId = idVector.getObject(i);
+            if (currentId != null && currentId.toString().equals(recordId)) {
+                recordIndex = i;
+                break;
+            }
+        }
+        
+        if (recordIndex == -1) {
+            return false;
+        }
+        
+        try {
+            // Update the field value based on its type
+            if (fieldVector instanceof VarCharVector) {
+                ((VarCharVector) fieldVector).setSafe(recordIndex, newValue.toString().getBytes());
+            } else if (fieldVector instanceof IntVector) {
+                ((IntVector) fieldVector).setSafe(recordIndex, Integer.parseInt(newValue.toString()));
+            } else if (fieldVector instanceof BigIntVector) {
+                ((BigIntVector) fieldVector).setSafe(recordIndex, Long.parseLong(newValue.toString()));
+            } else if (fieldVector instanceof Float8Vector) {
+                ((Float8Vector) fieldVector).setSafe(recordIndex, Double.parseDouble(newValue.toString()));
+            } else if (fieldVector instanceof Float4Vector) {
+                ((Float4Vector) fieldVector).setSafe(recordIndex, Float.parseFloat(newValue.toString()));
+            } else {
+                return false;
+            }
+            
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
     
     private int compareValues(Object value1, Object value2) {
         if (value1 == null && value2 == null) return 0;

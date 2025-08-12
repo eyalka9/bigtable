@@ -6,8 +6,6 @@ import java.util.Map;
 
 public interface TableService {
     
-    void loadData(String sessionId, List<Map<String, Object>> data, List<ColumnDefinition> schema);
-    
     void createSchema(String sessionId, List<ColumnDefinition> schema);
     
     void populateData(String sessionId, List<Map<String, Object>> data);
@@ -23,4 +21,6 @@ public interface TableService {
     String getImplementationType();
     
     void exportTableToFile(String sessionId, String filePath);
+    
+    boolean updateFieldValue(String sessionId, String recordId, String fieldName, Object newValue);
 }
