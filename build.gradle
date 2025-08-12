@@ -16,7 +16,7 @@ java {
 }
 
 application {
-    mainClass = 'com.poc.bigtable.BigTableApplication'
+    mainClass = 'amat.arrowstore.bigtable.BigTableApplication'
     applicationDefaultJvmArgs = [
         '--add-opens=java.base/java.nio=ALL-UNNAMED',
         '-Xmx4g',
