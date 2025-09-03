@@ -155,6 +155,37 @@ public class TableController {
         }
     }
     
+    @PostMapping("/{sessionId}/delete")
+    public ResponseEntity<Map<String, Object>> deleteByQuery(
+            @PathVariable String sessionId,
+            @Valid @RequestBody TableQueryRequest queryRequest) {
+        
+        try {
+            // Create a new query request with the correct sessionId
+            TableQueryRequest deleteQuery = new TableQueryRequest(
+                sessionId,
+                queryRequest.getFilters(),
+                queryRequest.getSorts(),
+                queryRequest.getSearchTerm(),
+                queryRequest.getPage(),
+                queryRequest.getPageSize()
+            );
+            
+            int deletedCount = tableService.deleteByQuery(sessionId, deleteQuery);
+            
+            return ResponseEntity.ok(Map.of(
+                "message", "Records deleted successfully",
+                "deletedCount", deletedCount,
+                "implementation", tableService.getImplementationType()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                "error", "Delete operation failed",
+                "message", e.getMessage()
+            ));
+        }
+    }
+    
     private ColumnDefinition convertToColumnDefinition(Map<String, Object> map) {
         String name = (String) map.get("name");
         String typeStr = (String) map.get("type");

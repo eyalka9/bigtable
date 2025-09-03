@@ -72,6 +72,11 @@ export const tableAPI = {
     });
     return response.data;
   },
+
+  deleteByQuery: async (queryRequest) => {
+    const response = await api.post(`/sessions/${queryRequest.sessionId}/delete`, queryRequest);
+    return response.data;
+  },
 };
 
 export default api;

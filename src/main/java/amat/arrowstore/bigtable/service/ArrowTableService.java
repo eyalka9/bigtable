@@ -113,7 +113,7 @@ public class ArrowTableService implements TableService {
             Span growSpan = getTracer().spanBuilder("arrow.growVectors").startSpan();
             try {
                 for (FieldVector vector : root.getFieldVectors()) {
-                    if (newRowCount > vector.getValueCapacity()) {
+                    while (newRowCount > vector.getValueCapacity()) {
                         // Calculate new capacity in chunks
                         int newCapacity = ((newRowCount / CHUNK_SIZE) + 1) * CHUNK_SIZE;
                         
@@ -736,8 +736,136 @@ public class ArrowTableService implements TableService {
     }
     
     @Override
+    public int deleteByQuery(String sessionId, TableQueryRequest queryRequest) {
+        Span span = getTracer().spanBuilder("arrow.deleteByQuery")
+                .setAttribute("sessionId", sessionId)
+                .setAttribute("hasSearch", queryRequest.getSearchTerm() != null && !queryRequest.getSearchTerm().trim().isEmpty())
+                .setAttribute("filterCount", queryRequest.getFilters() != null ? queryRequest.getFilters().size() : 0)
+                .setAttribute("implementation", "Arrow")
+                .startSpan();
+        
+        try {
+            VectorSchemaRoot root = sessionTables.get(sessionId);
+            if (root == null) {
+                return 0;
+            }
+            
+            // Generate indices of rows that match the deletion criteria
+            List<Integer> matchingIndices = generateMatchingIndices(root, queryRequest);
+            int deletedCount = matchingIndices.size();
+            
+            if (deletedCount == 0) {
+                return 0;
+            }
+            
+            int totalRows = root.getRowCount();
+            if (deletedCount == totalRows) {
+                // If deleting all rows, just clear and recreate empty schema
+                List<ColumnDefinition> schema = sessionSchemas.get(sessionId);
+                clearSession(sessionId);
+                createSchema(sessionId, schema);
+                span.setAttribute("deletedRows", deletedCount);
+                span.setAttribute("remainingRows", 0);
+                return deletedCount;
+            }
+            
+            // Create a set of indices to delete for O(1) lookup
+            Set<Integer> indicesToDelete = new HashSet<>(matchingIndices);
+            
+            // Build array of indices for rows we want to keep
+            int[] keepIndices = new int[totalRows - deletedCount];
+            int keepIndex = 0;
+            for (int rowIndex = 0; rowIndex < totalRows; rowIndex++) {
+                if (!indicesToDelete.contains(rowIndex)) {
+                    keepIndices[keepIndex++] = rowIndex;
+                }
+            }
+            
+            // Create new VectorSchemaRoot with same schema
+            VectorSchemaRoot newRoot = VectorSchemaRoot.create(root.getSchema(), allocator);
+            int newRowCount = keepIndices.length;
+            
+            // Allocate vectors for the new root
+            for (FieldVector newVector : newRoot.getFieldVectors()) {
+                if (newVector instanceof BaseVariableWidthVector) {
+                    // Find the corresponding column definition to get the width
+                    String fieldName = newVector.getField().getName();
+                    List<ColumnDefinition> schema = sessionSchemas.get(sessionId);
+                    ColumnDefinition colDef = schema.stream()
+                        .filter(col -> col.getName().equals(fieldName))
+                        .findFirst()
+                        .orElse(null);
+                    
+                    int width = (colDef != null && colDef.hasWidth()) ? colDef.getWidth() : 80;
+                    ((BaseVariableWidthVector) newVector).allocateNew(newRowCount * width, newRowCount);
+                } else {
+                    newVector.allocateNew();
+                }
+            }
+            
+            // Copy data directly using Arrow's vector operations
+            for (int colIndex = 0; colIndex < root.getFieldVectors().size(); colIndex++) {
+                FieldVector sourceVector = root.getVector(colIndex);
+                FieldVector targetVector = newRoot.getVector(colIndex);
+                
+                // Copy values at specified indices using Arrow's native operations
+                copyVectorValues(sourceVector, targetVector, keepIndices);
+            }
+            
+            newRoot.setRowCount(newRowCount);
+            
+            // Replace the old root with the new one
+            VectorSchemaRoot oldRoot = sessionTables.put(sessionId, newRoot);
+            sessionRowCounts.put(sessionId, newRowCount);
+            
+            // Close the old root
+            if (oldRoot != null) {
+                oldRoot.close();
+            }
+            
+            span.setAttribute("deletedRows", deletedCount);
+            span.setAttribute("remainingRows", newRowCount);
+            
+            return deletedCount;
+            
+        } finally {
+            span.end();
+        }
+    }
+    
+    @Override
     public List<String> getAllSessionIds() {
         return new ArrayList<>(sessionTables.keySet());
+    }
+    
+    private void copyVectorValues(FieldVector sourceVector, FieldVector targetVector, int[] sourceIndices) {
+        // Copy values at specified indices - more efficient than get/set but still works correctly
+        for (int targetIndex = 0; targetIndex < sourceIndices.length; targetIndex++) {
+            int sourceIndex = sourceIndices[targetIndex];
+            
+            if (sourceVector.isNull(sourceIndex)) {
+                targetVector.setNull(targetIndex);
+            } else {
+                // Use copyFromSafe for efficient copying
+                targetVector.copyFromSafe(sourceIndex, targetIndex, sourceVector);
+            }
+        }
+        
+        targetVector.setValueCount(sourceIndices.length);
+    }
+    
+    private DataType getDataTypeFromVector(FieldVector vector) {
+        if (vector instanceof IntVector) {
+            return DataType.INTEGER;
+        } else if (vector instanceof Float8Vector) {
+            return DataType.DOUBLE;
+        } else if (vector instanceof BitVector) {
+            return DataType.BOOLEAN;
+        } else if (vector instanceof VarBinaryVector) {
+            return DataType.BINARY;
+        } else {
+            return DataType.STRING;
+        }
     }
     
     private int compareValues(Object value1, Object value2) {

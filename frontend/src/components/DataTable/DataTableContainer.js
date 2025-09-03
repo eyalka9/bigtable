@@ -93,6 +93,26 @@ const DataTableContainer = ({ sessionId = 'default-session' }) => {
     }
   };
 
+  const handleDeleteByQuery = async () => {
+    try {
+      const confirmed = window.confirm(
+        `Are you sure you want to delete all records matching the current query?\n\n` +
+        `Filters: ${queryParams.filters.length > 0 ? JSON.stringify(queryParams.filters, null, 2) : 'None'}\n` +
+        `Search: ${queryParams.searchTerm || 'None'}\n\n` +
+        `This action cannot be undone.`
+      );
+      
+      if (confirmed) {
+        const result = await tableAPI.deleteByQuery({ sessionId, ...queryParams });
+        alert(`Delete successful!\nDeleted ${result.deletedCount} records.`);
+        refetch(); // Refresh the data to show updated results
+      }
+    } catch (error) {
+      console.error('Error deleting records:', error);
+      alert(`Delete failed: ${error.response?.data?.message || error.message}`);
+    }
+  };
+
   if (error) {
     return (
       <div className="error">
@@ -112,6 +132,7 @@ const DataTableContainer = ({ sessionId = 'default-session' }) => {
         isDataLoaded={isDataLoaded}
         sessionStatus={sessionStatus}
         onExportTable={handleExportTable}
+        onDeleteByQuery={handleDeleteByQuery}
       />
 
       {isDataLoaded && schema && (

@@ -24,5 +24,7 @@ public interface TableService {
     
     boolean updateFieldValue(String sessionId, String recordId, String fieldName, Object newValue);
     
+    int deleteByQuery(String sessionId, TableQueryRequest queryRequest);
+    
     List<String> getAllSessionIds();
 }

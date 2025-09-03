@@ -246,6 +246,168 @@ public class ArrowTableControllerIntegrationTest {
         System.out.println("Update performance test completed successfully!");
     }
     
+    @Test
+    public void testDeleteByQuery_Arrow() throws Exception {
+        System.out.println("\n=== DELETE BY QUERY TEST ===");
+        
+        String sessionId = "delete-test-session";
+        
+        // Prepare test data with more records for meaningful delete operations
+        Map<String, Object> payload = createLargerTestPayload();
+        
+        // Upload test data
+        mockMvc.perform(post("/v1/sessions/{sessionId}/data", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Data uploaded successfully"))
+                .andExpect(jsonPath("$.implementation").value("Arrow"))
+                .andExpect(jsonPath("$.rowCount").value("10"));
+        
+        // Verify initial data count
+        Map<String, Object> queryAllRequest = Map.of(
+            "sessionId", sessionId,
+            "filters", List.of(),
+            "sorts", List.of(),
+            "searchTerm", "",
+            "page", 0,
+            "pageSize", 100
+        );
+        
+        mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(queryAllRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(10));
+        
+        // Test 1: Delete records with specific filter (score < 85)
+        Map<String, Object> deleteRequest = Map.of(
+            "sessionId", sessionId,
+            "filters", List.of(Map.of("column", "score", "operation", "LESS_THAN", "values", List.of(85.0))),
+            "sorts", List.of(),
+            "searchTerm", "",
+            "page", 0,
+            "pageSize", 100
+        );
+        
+        mockMvc.perform(post("/v1/sessions/{sessionId}/delete", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(deleteRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Records deleted successfully"))
+                .andExpect(jsonPath("$.implementation").value("Arrow"))
+                .andExpect(jsonPath("$.deletedCount").value(3)); // Should delete 3 records
+        
+        // Verify remaining records
+        mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(queryAllRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(7)); // Should have 7 records left
+        
+        // Test 2: Delete records with name search
+        Map<String, Object> deleteBySearchRequest = Map.of(
+            "sessionId", sessionId,
+            "filters", List.of(),
+            "sorts", List.of(),
+            "searchTerm", "Alice",
+            "page", 0,
+            "pageSize", 100
+        );
+        
+        mockMvc.perform(post("/v1/sessions/{sessionId}/delete", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(deleteBySearchRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletedCount").value(1)); // Should delete Alice
+        
+        // Verify Alice is gone
+        mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(queryAllRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(6)); // Should have 6 records left
+        
+        // Test 3: Delete with boolean filter (active = false)
+        Map<String, Object> deleteInactiveRequest = Map.of(
+            "sessionId", sessionId,
+            "filters", List.of(Map.of("column", "active", "operation", "EQUALS", "values", List.of(false))),
+            "sorts", List.of(),
+            "searchTerm", "",
+            "page", 0,
+            "pageSize", 100
+        );
+        
+        mockMvc.perform(post("/v1/sessions/{sessionId}/delete", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(deleteInactiveRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletedCount").value(2)); // Should delete 2 inactive records
+        
+        // Verify final count
+        mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(queryAllRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(4)); // Should have 4 records left
+        
+        // Test 4: Attempt to delete non-existent records (should return 0)
+        Map<String, Object> deleteNonExistentRequest = Map.of(
+            "sessionId", sessionId,
+            "filters", List.of(Map.of("column", "score", "operation", "GREATER_THAN", "values", List.of(200.0))),
+            "sorts", List.of(),
+            "searchTerm", "",
+            "page", 0,
+            "pageSize", 100
+        );
+        
+        mockMvc.perform(post("/v1/sessions/{sessionId}/delete", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(deleteNonExistentRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletedCount").value(0)); // Should delete 0 records
+        
+        // Verify count unchanged
+        mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(queryAllRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(4)); // Still 4 records
+        
+        // Clean up
+        mockMvc.perform(delete("/v1/sessions/{sessionId}/data", sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Session data cleared"));
+        
+        System.out.println("Delete by query test completed successfully!");
+    }
+    
+    private Map<String, Object> createLargerTestPayload() {
+        // Create schema
+        List<Map<String, Object>> schema = List.of(
+            Map.of("name", "id", "type", "INTEGER", "sortable", true, "filterable", true, "searchable", false),
+            Map.of("name", "name", "type", "STRING", "sortable", true, "filterable", true, "searchable", true),
+            Map.of("name", "score", "type", "DOUBLE", "sortable", true, "filterable", true, "searchable", false),
+            Map.of("name", "active", "type", "BOOLEAN", "sortable", true, "filterable", true, "searchable", false)
+        );
+
+        // Create test data with varied values for meaningful delete operations
+        List<Map<String, Object>> data = List.of(
+            Map.of("id", 1, "name", "Alice", "score", 95.5, "active", true),      // Will survive
+            Map.of("id", 2, "name", "Bob", "score", 78.2, "active", false),       // Delete: score < 85, inactive
+            Map.of("id", 3, "name", "Charlie", "score", 92.8, "active", true),    // Will survive  
+            Map.of("id", 4, "name", "Diana", "score", 88.9, "active", true),      // Will survive
+            Map.of("id", 5, "name", "Eve", "score", 76.1, "active", true),        // Delete: score < 85
+            Map.of("id", 6, "name", "Frank", "score", 91.3, "active", false),     // Delete: inactive
+            Map.of("id", 7, "name", "Grace", "score", 84.7, "active", true),      // Delete: score < 85
+            Map.of("id", 8, "name", "Henry", "score", 96.2, "active", true),      // Will survive
+            Map.of("id", 9, "name", "Ivy", "score", 87.5, "active", false),       // Delete: inactive
+            Map.of("id", 10, "name", "Jack", "score", 90.1, "active", true)       // Will survive
+        );
+
+        return Map.of("schema", schema, "data", data);
+    }
+    
     private void testQueryPerformance(String sessionId, int pageSize, String testName,
                                      List<Map<String, Object>> sorts,
                                      List<Map<String, Object>> filters,

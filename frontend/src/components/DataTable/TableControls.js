@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const TableControls = ({ onLoadSampleData, onQueryChange, queryParams, isDataLoaded, sessionStatus, onExportTable }) => {
+const TableControls = ({ onLoadSampleData, onQueryChange, queryParams, isDataLoaded, sessionStatus, onExportTable, onDeleteByQuery }) => {
   const [searchTerm, setSearchTerm] = useState(queryParams.searchTerm);
 
   const handleSearchChange = (e) => {
@@ -55,6 +55,17 @@ const TableControls = ({ onLoadSampleData, onQueryChange, queryParams, isDataLoa
           
           <button onClick={onExportTable} style={{ backgroundColor: '#28a745' }}>
             Export Table
+          </button>
+          
+          <button 
+            onClick={onDeleteByQuery} 
+            style={{ 
+              backgroundColor: '#dc3545', 
+              color: 'white',
+              marginLeft: '10px'
+            }}
+          >
+            Delete Current Query
           </button>
         </>
       )}
