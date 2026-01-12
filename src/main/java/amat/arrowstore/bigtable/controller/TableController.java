@@ -22,19 +22,43 @@ public class TableController {
     public ResponseEntity<Map<String, String>> uploadData(
             @PathVariable String sessionId,
             @RequestBody Map<String, Object> payload) {
-        
+
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> data = (List<Map<String, Object>>) payload.get("data");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> schemaRaw = (List<Map<String, Object>>) payload.get("schema");
-        
+
         List<ColumnDefinition> schema = schemaRaw.stream()
             .map(this::convertToColumnDefinition)
             .collect(Collectors.toList());
-        
+
+        List<ColumnDefinition> binaryColumns = schema.stream()
+            .filter(col -> col.getType() == DataType.BINARY)
+            .collect(Collectors.toList());
+
+        if (!binaryColumns.isEmpty()) {
+            for (Map<String, Object> row : data) {
+                for (ColumnDefinition binaryCol : binaryColumns) {
+                    Object value = row.get(binaryCol.getName());
+                    if (value != null) {
+                        if (value instanceof List) {
+                            List<?> list = (List<?>) value;
+                            byte[] bytes = new byte[list.size()];
+                            for (int i = 0; i < list.size(); i++) {
+                                bytes[i] = ((Number) list.get(i)).byteValue();
+                            }
+                            row.put(binaryCol.getName(), bytes);
+                        } else if (value instanceof String) {
+                            row.put(binaryCol.getName(), java.util.Base64.getDecoder().decode((String) value));
+                        }
+                    }
+                }
+            }
+        }
+
         tableService.createSchema(sessionId, schema);
         tableService.populateData(sessionId, data);
-        
+
         return ResponseEntity.ok(Map.of(
             "message", "Data uploaded successfully",
             "implementation", tableService.getImplementationType(),
