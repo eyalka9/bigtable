@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -37,7 +39,9 @@ public class TableController {
             .collect(Collectors.toList());
 
         if (!binaryColumns.isEmpty()) {
+            List<Map<String, Object>> convertedData = new ArrayList<>();
             for (Map<String, Object> row : data) {
+                Map<String, Object> convertedRow = new HashMap<>(row);
                 for (ColumnDefinition binaryCol : binaryColumns) {
                     Object value = row.get(binaryCol.getName());
                     if (value != null && !(value instanceof byte[])) {
@@ -52,11 +56,13 @@ public class TableController {
                             convertedBytes = java.util.Base64.getDecoder().decode((String) value);
                         }
                         if (convertedBytes != null) {
-                            row.put(binaryCol.getName(), convertedBytes);
+                            convertedRow.put(binaryCol.getName(), convertedBytes);
                         }
                     }
                 }
+                convertedData.add(convertedRow);
             }
+            data = convertedData;
         }
 
         tableService.createSchema(sessionId, schema);
