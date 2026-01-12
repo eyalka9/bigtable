@@ -406,7 +406,7 @@ public class ArrowTableService implements TableService {
                 ((BitVector) vector).set(index, Boolean.parseBoolean(value.toString()) ? 1 : 0);
                 break;
             case BINARY:
-                ((VarBinaryVector) vector).set(index, (byte[]) value);
+                ((VarBinaryVector) vector).setSafe(index, (byte[]) value);
                 break;
             default:
                 ((VarCharVector) vector).set(index, value.toString().getBytes());
@@ -725,6 +725,8 @@ public class ArrowTableService implements TableService {
                 ((Float8Vector) fieldVector).setSafe(recordIndex, Double.parseDouble(newValue.toString()));
             } else if (fieldVector instanceof Float4Vector) {
                 ((Float4Vector) fieldVector).setSafe(recordIndex, Float.parseFloat(newValue.toString()));
+            } else if (fieldVector instanceof VarBinaryVector) {
+                ((VarBinaryVector) fieldVector).setSafe(recordIndex, (byte[]) newValue);
             } else {
                 return false;
             }

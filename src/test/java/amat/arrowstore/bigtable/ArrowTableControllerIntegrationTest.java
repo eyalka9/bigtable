@@ -438,6 +438,127 @@ public class ArrowTableControllerIntegrationTest {
         }
     }
 
+    @Test
+    public void testBinaryUpdatePerformance_Sequential_Arrow() throws Exception {
+        System.out.println("\n=== BINARY UPDATE PERFORMANCE TEST (SEQUENTIAL) ===");
+
+        String sessionId = "default-session";
+        int numberOfUpdates = 5000;
+        int binarySize = 2048;
+
+        System.out.println("Testing " + numberOfUpdates + " sequential binary updates with " + binarySize + " bytes...");
+
+        PerformanceTimer overallTimer = startTimer(numberOfUpdates + " Sequential Binary Updates");
+
+        java.util.Random random = new java.util.Random();
+
+        for (int i = 1; i <= numberOfUpdates; i++) {
+            String recordId = String.valueOf(i);
+            String fieldName = "binary_data";
+
+            byte[] binaryValue = new byte[binarySize];
+            random.nextBytes(binaryValue);
+
+            Map<String, Object> updatePayload = Map.of("value", binaryValue);
+
+            try {
+                mockMvc.perform(put("/v1/sessions/{sessionId}/record/{recordId}/field/{fieldName}",
+                        sessionId, recordId, fieldName)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updatePayload)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.message").value("Field updated successfully"))
+                        .andExpect(jsonPath("$.recordId").value(recordId))
+                        .andExpect(jsonPath("$.fieldName").value(fieldName));
+
+                if (i % 1000 == 0) {
+                    System.out.println("Completed " + i + "/" + numberOfUpdates + " sequential binary updates");
+                }
+
+            } catch (Exception e) {
+                System.out.println("FAILED at sequential update " + i + ": " + e.getMessage());
+                throw e;
+            }
+        }
+
+        long totalTime = overallTimer.stopAndReturn();
+
+        double avgTimePerUpdate = totalTime / (double) numberOfUpdates;
+        double updatesPerSecond = numberOfUpdates / (totalTime / 1000.0);
+
+        System.out.println("\n=== SEQUENTIAL BINARY UPDATE PERFORMANCE RESULTS ===");
+        System.out.println("Total updates: " + numberOfUpdates);
+        System.out.println("Binary size: " + binarySize + " bytes");
+        System.out.println("Total time: " + totalTime + " ms");
+        System.out.println("Average time per update: " + String.format("%.2f", avgTimePerUpdate) + " ms");
+        System.out.println("Updates per second: " + String.format("%.1f", updatesPerSecond));
+        System.out.println("====================================================");
+
+        System.out.println("Sequential binary update performance test completed successfully!");
+    }
+
+    @Test
+    public void testBinaryUpdatePerformance_RandomIndex_Arrow() throws Exception {
+        System.out.println("\n=== BINARY UPDATE PERFORMANCE TEST (RANDOM INDEX) ===");
+
+        String sessionId = "default-session";
+        int numberOfUpdates = 5000;
+        int binarySize = 2048;
+        int maxRecordId = 150000;
+
+        System.out.println("Testing " + numberOfUpdates + " random index binary updates with " + binarySize + " bytes...");
+
+        PerformanceTimer overallTimer = startTimer(numberOfUpdates + " Random Index Binary Updates");
+
+        java.util.Random random = new java.util.Random();
+
+        for (int i = 1; i <= numberOfUpdates; i++) {
+            int randomRecordId = random.nextInt(maxRecordId) + 1;
+            String recordId = String.valueOf(randomRecordId);
+            String fieldName = "binary_data";
+
+            byte[] binaryValue = new byte[binarySize];
+            random.nextBytes(binaryValue);
+
+            Map<String, Object> updatePayload = Map.of("value", binaryValue);
+
+            try {
+                mockMvc.perform(put("/v1/sessions/{sessionId}/record/{recordId}/field/{fieldName}",
+                        sessionId, recordId, fieldName)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updatePayload)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.message").value("Field updated successfully"))
+                        .andExpect(jsonPath("$.recordId").value(recordId))
+                        .andExpect(jsonPath("$.fieldName").value(fieldName));
+
+                if (i % 1000 == 0) {
+                    System.out.println("Completed " + i + "/" + numberOfUpdates + " random index binary updates");
+                }
+
+            } catch (Exception e) {
+                System.out.println("FAILED at random update " + i + ": " + e.getMessage());
+                throw e;
+            }
+        }
+
+        long totalTime = overallTimer.stopAndReturn();
+
+        double avgTimePerUpdate = totalTime / (double) numberOfUpdates;
+        double updatesPerSecond = numberOfUpdates / (totalTime / 1000.0);
+
+        System.out.println("\n=== RANDOM INDEX BINARY UPDATE PERFORMANCE RESULTS ===");
+        System.out.println("Total updates: " + numberOfUpdates);
+        System.out.println("Binary size: " + binarySize + " bytes");
+        System.out.println("Record ID range: 1 to " + maxRecordId);
+        System.out.println("Total time: " + totalTime + " ms");
+        System.out.println("Average time per update: " + String.format("%.2f", avgTimePerUpdate) + " ms");
+        System.out.println("Updates per second: " + String.format("%.1f", updatesPerSecond));
+        System.out.println("======================================================");
+
+        System.out.println("Random index binary update performance test completed successfully!");
+    }
+
     private Map<String, Object> createTestPayload() {
         // Create schema with different data types
         List<Map<String, Object>> schema = List.of(
