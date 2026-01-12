@@ -127,18 +127,36 @@ public class TableController {
             @PathVariable String recordId,
             @PathVariable String fieldName,
             @RequestBody Map<String, Object> payload) {
-        
+
         Object newValue = payload.get("value");
-        
+
         try {
+            List<ColumnDefinition> schema = tableService.getSchema(sessionId);
+            ColumnDefinition columnDef = schema.stream()
+                .filter(col -> col.getName().equals(fieldName))
+                .findFirst()
+                .orElse(null);
+
+            if (columnDef != null && columnDef.getType() == DataType.BINARY) {
+                if (newValue instanceof List) {
+                    List<?> list = (List<?>) newValue;
+                    byte[] bytes = new byte[list.size()];
+                    for (int i = 0; i < list.size(); i++) {
+                        bytes[i] = ((Number) list.get(i)).byteValue();
+                    }
+                    newValue = bytes;
+                } else if (newValue instanceof String) {
+                    newValue = java.util.Base64.getDecoder().decode((String) newValue);
+                }
+            }
+
             boolean success = tableService.updateFieldValue(sessionId, recordId, fieldName, newValue);
-            
+
             if (success) {
                 return ResponseEntity.ok(Map.of(
                     "message", "Field updated successfully",
                     "recordId", recordId,
-                    "fieldName", fieldName,
-                    "newValue", newValue
+                    "fieldName", fieldName
                 ));
             } else {
                 return ResponseEntity.status(404).body(Map.of(
