@@ -439,6 +439,138 @@ public class ArrowTableControllerIntegrationTest {
     }
 
     @Test
+    public void testBinaryUpdateDataIntegrity_Arrow() throws Exception {
+        System.out.println("\n=== BINARY UPDATE DATA INTEGRITY TEST ===");
+
+        String sessionId = "integrity-test-session";
+
+        // Create schema with binary column
+        List<Map<String, Object>> schema = List.of(
+            Map.of("name", "id", "type", "INTEGER", "sortable", true, "filterable", true, "searchable", false),
+            Map.of("name", "name", "type", "STRING", "sortable", true, "filterable", true, "searchable", true),
+            Map.of("name", "binary_data", "type", "BINARY", "sortable", false, "filterable", false, "searchable", false, "width", 1024)
+        );
+
+        // Create 5 rows with 1024 byte binary data
+        java.util.Random random = new java.util.Random(12345); // Fixed seed for reproducibility
+        List<Map<String, Object>> data = new java.util.ArrayList<>();
+        byte[][] originalBinaryData = new byte[5][1024];
+
+        for (int i = 0; i < 5; i++) {
+            byte[] binaryValue = new byte[1024];
+            random.nextBytes(binaryValue);
+            originalBinaryData[i] = binaryValue.clone();
+
+            data.add(Map.of(
+                "id", i + 1,
+                "name", "Record_" + (i + 1),
+                "binary_data", binaryValue
+            ));
+        }
+
+        Map<String, Object> payload = Map.of("schema", schema, "data", data);
+
+        // Upload data
+        System.out.println("Creating session with 5 rows of 1024-byte binary data...");
+        mockMvc.perform(post("/v1/sessions/{sessionId}/data", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Data uploaded successfully"));
+
+        // Update the 2nd row (id=2) with 2048 bytes (double the original size)
+        System.out.println("Updating 2nd row with 2048-byte binary data (2x larger)...");
+        byte[] largerBinaryValue = new byte[2048];
+        random.nextBytes(largerBinaryValue);
+
+        Map<String, Object> updatePayload = Map.of("value", largerBinaryValue);
+
+        mockMvc.perform(put("/v1/sessions/{sessionId}/record/{recordId}/field/{fieldName}",
+                sessionId, "2", "binary_data")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(updatePayload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Field updated successfully"));
+
+        System.out.println("Update completed. Verifying data integrity...");
+
+        // Query all records to verify integrity
+        Map<String, Object> queryRequest = Map.of(
+            "sessionId", sessionId,
+            "filters", List.of(),
+            "sorts", List.of(Map.of("column", "id", "direction", "ASC")),
+            "searchTerm", "",
+            "page", 0,
+            "pageSize", 10
+        );
+
+        String queryResponse = mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(queryRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(5))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        // Parse response and verify binary data
+        com.fasterxml.jackson.databind.JsonNode responseJson = objectMapper.readTree(queryResponse);
+        com.fasterxml.jackson.databind.JsonNode dataArray = responseJson.get("data");
+
+        System.out.println("\nVerifying data integrity for all rows:");
+
+        for (int i = 0; i < 5; i++) {
+            com.fasterxml.jackson.databind.JsonNode row = dataArray.get(i);
+            int id = row.get("id").asInt();
+            com.fasterxml.jackson.databind.JsonNode binaryNode = row.get("binary_data");
+
+            byte[] retrievedBinary = new byte[binaryNode.size()];
+            for (int j = 0; j < binaryNode.size(); j++) {
+                retrievedBinary[j] = (byte) binaryNode.get(j).asInt();
+            }
+
+            if (id == 2) {
+                // Row 2 should have the new 2048-byte value
+                if (retrievedBinary.length == 2048 && java.util.Arrays.equals(retrievedBinary, largerBinaryValue)) {
+                    System.out.println("Row 2: OK - Updated to 2048 bytes");
+                } else {
+                    throw new AssertionError("Row 2 binary data mismatch! Expected 2048 bytes, got " + retrievedBinary.length);
+                }
+            } else if (id == 3) {
+                // Row 3 (critical test) - should NOT be corrupted by row 2's update
+                if (retrievedBinary.length == 1024 && java.util.Arrays.equals(retrievedBinary, originalBinaryData[i])) {
+                    System.out.println("Row 3: OK - Data intact (not corrupted by row 2's larger update)");
+                } else {
+                    throw new AssertionError("Row 3 binary data CORRUPTED! Expected 1024 bytes matching original, got " + retrievedBinary.length);
+                }
+            } else {
+                // Other rows should remain unchanged
+                if (retrievedBinary.length == 1024 && java.util.Arrays.equals(retrievedBinary, originalBinaryData[i])) {
+                    System.out.println("Row " + id + ": OK - Data intact (1024 bytes)");
+                } else {
+                    throw new AssertionError("Row " + id + " binary data mismatch! Expected 1024 bytes, got " + retrievedBinary.length);
+                }
+            }
+        }
+
+        System.out.println("\n=== DATA INTEGRITY TEST PASSED ===");
+        System.out.println("All rows verified:");
+        System.out.println("- Row 1: Original 1024 bytes intact");
+        System.out.println("- Row 2: Successfully updated to 2048 bytes");
+        System.out.println("- Row 3: Original 1024 bytes intact (NO CORRUPTION)");
+        System.out.println("- Row 4: Original 1024 bytes intact");
+        System.out.println("- Row 5: Original 1024 bytes intact");
+        System.out.println("=====================================");
+
+        // Clean up
+        mockMvc.perform(delete("/v1/sessions/{sessionId}/data", sessionId))
+                .andExpect(status().isOk());
+
+        System.out.println("Binary update data integrity test completed successfully!");
+    }
+
+    @Test
     public void testBinaryUpdatePerformance_Sequential_Arrow() throws Exception {
         System.out.println("\n=== BINARY UPDATE PERFORMANCE TEST (SEQUENTIAL) ===");
 

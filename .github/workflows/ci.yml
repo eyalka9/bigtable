@@ -30,8 +30,9 @@ jobs:
     - name: Run tests
       run: ./gradlew test --info
 
-    - name: Run binary update performance tests
+    - name: Run binary update tests
       run: |
+        ./gradlew test --tests "amat.arrowstore.bigtable.ArrowTableControllerIntegrationTest.testBinaryUpdateDataIntegrity_Arrow" --info
         ./gradlew test --tests "amat.arrowstore.bigtable.ArrowTableControllerIntegrationTest.testBinaryUpdatePerformance_Sequential_Arrow" --info
         ./gradlew test --tests "amat.arrowstore.bigtable.ArrowTableControllerIntegrationTest.testBinaryUpdatePerformance_RandomIndex_Arrow" --info
 
