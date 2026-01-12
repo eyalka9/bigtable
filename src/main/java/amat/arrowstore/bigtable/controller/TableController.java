@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -22,19 +24,50 @@ public class TableController {
     public ResponseEntity<Map<String, String>> uploadData(
             @PathVariable String sessionId,
             @RequestBody Map<String, Object> payload) {
-        
+
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> data = (List<Map<String, Object>>) payload.get("data");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> schemaRaw = (List<Map<String, Object>>) payload.get("schema");
-        
+
         List<ColumnDefinition> schema = schemaRaw.stream()
             .map(this::convertToColumnDefinition)
             .collect(Collectors.toList());
-        
+
+        List<ColumnDefinition> binaryColumns = schema.stream()
+            .filter(col -> col.getType() == DataType.BINARY)
+            .collect(Collectors.toList());
+
+        if (!binaryColumns.isEmpty()) {
+            List<Map<String, Object>> convertedData = new ArrayList<>();
+            for (Map<String, Object> row : data) {
+                Map<String, Object> convertedRow = new HashMap<>(row);
+                for (ColumnDefinition binaryCol : binaryColumns) {
+                    Object value = row.get(binaryCol.getName());
+                    if (value != null && !(value instanceof byte[])) {
+                        byte[] convertedBytes = null;
+                        if (value instanceof List) {
+                            List<?> list = (List<?>) value;
+                            convertedBytes = new byte[list.size()];
+                            for (int i = 0; i < list.size(); i++) {
+                                convertedBytes[i] = ((Number) list.get(i)).byteValue();
+                            }
+                        } else if (value instanceof String) {
+                            convertedBytes = java.util.Base64.getDecoder().decode((String) value);
+                        }
+                        if (convertedBytes != null) {
+                            convertedRow.put(binaryCol.getName(), convertedBytes);
+                        }
+                    }
+                }
+                convertedData.add(convertedRow);
+            }
+            data = convertedData;
+        }
+
         tableService.createSchema(sessionId, schema);
         tableService.populateData(sessionId, data);
-        
+
         return ResponseEntity.ok(Map.of(
             "message", "Data uploaded successfully",
             "implementation", tableService.getImplementationType(),
@@ -127,18 +160,36 @@ public class TableController {
             @PathVariable String recordId,
             @PathVariable String fieldName,
             @RequestBody Map<String, Object> payload) {
-        
+
         Object newValue = payload.get("value");
-        
+
         try {
+            List<ColumnDefinition> schema = tableService.getSchema(sessionId);
+            ColumnDefinition columnDef = schema.stream()
+                .filter(col -> col.getName().equals(fieldName))
+                .findFirst()
+                .orElse(null);
+
+            if (columnDef != null && columnDef.getType() == DataType.BINARY) {
+                if (newValue instanceof List) {
+                    List<?> list = (List<?>) newValue;
+                    byte[] bytes = new byte[list.size()];
+                    for (int i = 0; i < list.size(); i++) {
+                        bytes[i] = ((Number) list.get(i)).byteValue();
+                    }
+                    newValue = bytes;
+                } else if (newValue instanceof String) {
+                    newValue = java.util.Base64.getDecoder().decode((String) newValue);
+                }
+            }
+
             boolean success = tableService.updateFieldValue(sessionId, recordId, fieldName, newValue);
-            
+
             if (success) {
                 return ResponseEntity.ok(Map.of(
                     "message", "Field updated successfully",
                     "recordId", recordId,
-                    "fieldName", fieldName,
-                    "newValue", newValue
+                    "fieldName", fieldName
                 ));
             } else {
                 return ResponseEntity.status(404).body(Map.of(

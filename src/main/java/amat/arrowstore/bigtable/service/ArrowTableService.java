@@ -406,7 +406,21 @@ public class ArrowTableService implements TableService {
                 ((BitVector) vector).set(index, Boolean.parseBoolean(value.toString()) ? 1 : 0);
                 break;
             case BINARY:
-                ((VarBinaryVector) vector).set(index, (byte[]) value);
+                byte[] binaryValue;
+                if (value instanceof byte[]) {
+                    binaryValue = (byte[]) value;
+                } else if (value instanceof String) {
+                    binaryValue = java.util.Base64.getDecoder().decode((String) value);
+                } else if (value instanceof List) {
+                    List<?> list = (List<?>) value;
+                    binaryValue = new byte[list.size()];
+                    for (int i = 0; i < list.size(); i++) {
+                        binaryValue[i] = ((Number) list.get(i)).byteValue();
+                    }
+                } else {
+                    throw new IllegalArgumentException("Binary value must be byte[], String (Base64), or List of Numbers");
+                }
+                ((VarBinaryVector) vector).setSafe(index, binaryValue);
                 break;
             default:
                 ((VarCharVector) vector).set(index, value.toString().getBytes());
@@ -725,6 +739,8 @@ public class ArrowTableService implements TableService {
                 ((Float8Vector) fieldVector).setSafe(recordIndex, Double.parseDouble(newValue.toString()));
             } else if (fieldVector instanceof Float4Vector) {
                 ((Float4Vector) fieldVector).setSafe(recordIndex, Float.parseFloat(newValue.toString()));
+            } else if (fieldVector instanceof VarBinaryVector) {
+                ((VarBinaryVector) fieldVector).setSafe(recordIndex, (byte[]) newValue);
             } else {
                 return false;
             }
