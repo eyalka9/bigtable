@@ -40,16 +40,19 @@ public class TableController {
             for (Map<String, Object> row : data) {
                 for (ColumnDefinition binaryCol : binaryColumns) {
                     Object value = row.get(binaryCol.getName());
-                    if (value != null) {
+                    if (value != null && !(value instanceof byte[])) {
+                        byte[] convertedBytes = null;
                         if (value instanceof List) {
                             List<?> list = (List<?>) value;
-                            byte[] bytes = new byte[list.size()];
+                            convertedBytes = new byte[list.size()];
                             for (int i = 0; i < list.size(); i++) {
-                                bytes[i] = ((Number) list.get(i)).byteValue();
+                                convertedBytes[i] = ((Number) list.get(i)).byteValue();
                             }
-                            row.put(binaryCol.getName(), bytes);
                         } else if (value instanceof String) {
-                            row.put(binaryCol.getName(), java.util.Base64.getDecoder().decode((String) value));
+                            convertedBytes = java.util.Base64.getDecoder().decode((String) value);
+                        }
+                        if (convertedBytes != null) {
+                            row.put(binaryCol.getName(), convertedBytes);
                         }
                     }
                 }
