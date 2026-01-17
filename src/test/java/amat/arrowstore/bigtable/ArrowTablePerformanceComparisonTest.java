@@ -134,7 +134,7 @@ public class ArrowTablePerformanceComparisonTest {
 
         // Create table from Arrow file
         String arrowPath = tempArrowFile.getAbsolutePath().replace("\\", "/");
-        stmt.execute("CREATE TABLE arrow_table AS SELECT * FROM read_arrow_file('" + arrowPath + "')");
+        stmt.execute("CREATE TABLE arrow_table AS SELECT * FROM scan_arrow_ipc('" + arrowPath + "')");
 
         // Execute UPDATE query
         int duckdbUpdatedCount = stmt.executeUpdate("UPDATE arrow_table SET value = value * 2 WHERE key > 500");
