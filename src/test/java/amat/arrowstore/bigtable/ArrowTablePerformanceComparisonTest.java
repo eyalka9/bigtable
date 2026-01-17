@@ -5,22 +5,26 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import amat.arrowstore.bigtable.model.DataType;
 import amat.arrowstore.bigtable.service.ArrowTableService;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
 
 import java.util.*;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+@SpringBootTest(classes = {BigTableApplication.class})
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
+@TestPropertySource(properties = {
+    "bigtable.implementation=arrow",
+    "server.servlet.context-path="
+})
 public class ArrowTablePerformanceComparisonTest {
 
     @Autowired
@@ -33,50 +37,44 @@ public class ArrowTablePerformanceComparisonTest {
     private ArrowTableService arrowTableService;
 
     @Test
-    public void testJavaVsDuckDBPerformance() throws Exception {
-        System.out.println("\n=== JAVA VS DUCKDB PERFORMANCE COMPARISON ===");
+    public void testJavaVsArrowNativePerformance() throws Exception {
+        System.out.println("\n=== JAVA VS ARROW NATIVE PERFORMANCE COMPARISON ===");
 
         String sessionId = "perf-test-session";
-        Random random = new Random(42); // Fixed seed for repeatability
+        Random random = new Random(42);
 
-        // Create session with key and value columns
-        Map<String, Object> createSessionRequest = Map.of(
-            "columns", List.of(
-                Map.of("name", "key", "type", "INTEGER"),
-                Map.of("name", "value", "type", "INTEGER")
-            )
+        // Create schema
+        List<Map<String, Object>> schema = List.of(
+            Map.of("name", "key", "type", "INTEGER"),
+            Map.of("name", "value", "type", "INTEGER")
         );
-
-        mockMvc.perform(post("/v1/sessions")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(createSessionRequest)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionId").value(sessionId));
 
         // Generate 150,000 rows with key (1-1000) and value (1-10000)
         System.out.println("Generating 150,000 rows...");
         List<Map<String, Object>> data = new ArrayList<>();
         for (int i = 0; i < 150000; i++) {
-            int key = random.nextInt(1000) + 1; // 1-1000
-            int value = random.nextInt(10000) + 1; // 1-10000
+            int key = random.nextInt(1000) + 1;
+            int value = random.nextInt(10000) + 1;
             data.add(Map.of("key", key, "value", value));
         }
+
+        // Create payload with schema and data
+        Map<String, Object> payload = Map.of("schema", schema, "data", data);
 
         // Upload data
         System.out.println("Uploading data...");
         long uploadStart = System.currentTimeMillis();
-        mockMvc.perform(post("/v1/sessions/{sessionId}/upload", sessionId)
+        mockMvc.perform(post("/v1/sessions/{sessionId}/data", sessionId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(data)))
+                .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk());
         long uploadEnd = System.currentTimeMillis();
         System.out.println("Data upload time: " + (uploadEnd - uploadStart) + " ms");
 
         // Test 1: Pure Java approach
-        System.out.println("\n--- Pure Java Approach ---");
+        System.out.println("\n--- Pure Java In-Memory Approach ---");
         long javaStart = System.nanoTime();
 
-        // Query all data
         Map<String, Object> queryRequest = Map.of(
             "sessionId", sessionId,
             "filters", List.of(),
@@ -99,59 +97,59 @@ public class ArrowTablePerformanceComparisonTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> rows = (List<Map<String, Object>>) queryResult.get("data");
 
-        // Apply transformation in Java
-        int updatedCount = 0;
+        int javaUpdatedCount = 0;
         for (Map<String, Object> row : rows) {
             Integer key = (Integer) row.get("key");
             Integer value = (Integer) row.get("value");
             if (key != null && key > 500) {
                 row.put("value", value * 2);
-                updatedCount++;
+                javaUpdatedCount++;
             }
         }
 
         long javaEnd = System.nanoTime();
         double javaTimeMs = (javaEnd - javaStart) / 1_000_000.0;
         System.out.println("Java processing time: " + String.format("%.2f", javaTimeMs) + " ms");
-        System.out.println("Rows updated: " + updatedCount);
+        System.out.println("Rows updated: " + javaUpdatedCount);
 
-        // Test 2: DuckDB approach
-        System.out.println("\n--- DuckDB Query Approach ---");
+        // Test 2: Arrow Native approach
+        System.out.println("\n--- Arrow Native Vector Approach ---");
 
-        // Re-upload original data to reset
-        mockMvc.perform(post("/v1/sessions/{sessionId}/upload", sessionId)
+        mockMvc.perform(post("/v1/sessions/{sessionId}/data", sessionId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(data)))
+                .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk());
 
-        long duckdbStart = System.nanoTime();
+        long arrowStart = System.nanoTime();
 
-        // Execute DuckDB query
-        String updateQuery = "UPDATE arrow_table SET value = value * 2 WHERE key > 500";
-        Map<String, Object> duckdbRequest = Map.of(
-            "sessionId", sessionId,
-            "query", updateQuery
-        );
+        VectorSchemaRoot root = arrowTableService.getVectorSchemaRoot(sessionId);
+        IntVector keyVector = (IntVector) root.getVector("key");
+        IntVector valueVector = (IntVector) root.getVector("value");
 
-        mockMvc.perform(post("/v1/sessions/{sessionId}/duckdb/execute", sessionId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(duckdbRequest)))
-                .andExpect(status().isOk());
+        int arrowUpdatedCount = 0;
+        for (int i = 0; i < keyVector.getValueCount(); i++) {
+            if (!keyVector.isNull(i) && keyVector.get(i) > 500) {
+                int currentValue = valueVector.get(i);
+                valueVector.set(i, currentValue * 2);
+                arrowUpdatedCount++;
+            }
+        }
 
-        long duckdbEnd = System.nanoTime();
-        double duckdbTimeMs = (duckdbEnd - duckdbStart) / 1_000_000.0;
-        System.out.println("DuckDB processing time: " + String.format("%.2f", duckdbTimeMs) + " ms");
+        long arrowEnd = System.nanoTime();
+        double arrowTimeMs = (arrowEnd - arrowStart) / 1_000_000.0;
+        System.out.println("Arrow native processing time: " + String.format("%.2f", arrowTimeMs) + " ms");
+        System.out.println("Rows updated: " + arrowUpdatedCount);
 
         // Performance comparison
         System.out.println("\n=== PERFORMANCE COMPARISON ===");
-        System.out.println("Java time: " + String.format("%.2f", javaTimeMs) + " ms");
-        System.out.println("DuckDB time: " + String.format("%.2f", duckdbTimeMs) + " ms");
-        double speedup = javaTimeMs / duckdbTimeMs;
+        System.out.println("Java in-memory time: " + String.format("%.2f", javaTimeMs) + " ms");
+        System.out.println("Arrow native time: " + String.format("%.2f", arrowTimeMs) + " ms");
+        double speedup = javaTimeMs / arrowTimeMs;
         System.out.println("Speedup: " + String.format("%.2fx", speedup) + " (" +
-            (speedup > 1 ? "DuckDB faster" : "Java faster") + ")");
+            (speedup > 1 ? "Arrow faster" : "Java faster") + ")");
 
         // Cleanup
-        mockMvc.perform(delete("/v1/sessions/{sessionId}", sessionId))
+        mockMvc.perform(delete("/v1/sessions/{sessionId}/data", sessionId))
                 .andExpect(status().isOk());
 
         System.out.println("\n=== TEST COMPLETED ===");

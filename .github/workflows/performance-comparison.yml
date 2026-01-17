@@ -26,8 +26,8 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Run Java vs DuckDB performance comparison test
-      run: ./gradlew test --tests "amat.arrowstore.bigtable.ArrowTablePerformanceComparisonTest.testJavaVsDuckDBPerformance" --info
+    - name: Run Java vs Arrow Native performance comparison test
+      run: ./gradlew test --tests "amat.arrowstore.bigtable.ArrowTablePerformanceComparisonTest.testJavaVsArrowNativePerformance" --info
 
     - name: Upload test reports
       if: always()
