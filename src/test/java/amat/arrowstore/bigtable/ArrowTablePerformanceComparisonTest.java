@@ -13,7 +13,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import amat.arrowstore.bigtable.service.ArrowTableService;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.duckdb.DuckDBConnection;
 
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.*;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -37,8 +40,8 @@ public class ArrowTablePerformanceComparisonTest {
     private ArrowTableService arrowTableService;
 
     @Test
-    public void testJavaVsArrowNativePerformance() throws Exception {
-        System.out.println("\n=== JAVA VS ARROW NATIVE PERFORMANCE COMPARISON ===");
+    public void testJavaVsDuckDBPerformance() throws Exception {
+        System.out.println("\n=== PURE JAVA VS DUCKDB PERFORMANCE COMPARISON ===");
 
         String sessionId = "perf-test-session";
         Random random = new Random(42);
@@ -71,82 +74,65 @@ public class ArrowTablePerformanceComparisonTest {
         long uploadEnd = System.currentTimeMillis();
         System.out.println("Data upload time: " + (uploadEnd - uploadStart) + " ms");
 
-        // Test 1: Pure Java approach
-        System.out.println("\n--- Pure Java In-Memory Approach ---");
+        // Test 1: Pure Java approach (direct Arrow vector manipulation)
+        System.out.println("\n--- Pure Java Approach (Direct Arrow Vectors) ---");
         long javaStart = System.nanoTime();
 
-        Map<String, Object> queryRequest = Map.of(
-            "sessionId", sessionId,
-            "filters", List.of(),
-            "sorts", List.of(),
-            "searchTerm", "",
-            "page", 0,
-            "pageSize", 150000
-        );
-
-        String queryResponse = mockMvc.perform(post("/v1/sessions/{sessionId}/query", sessionId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(queryRequest)))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> queryResult = objectMapper.readValue(queryResponse, Map.class);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> rows = (List<Map<String, Object>>) queryResult.get("data");
+        VectorSchemaRoot root = arrowTableService.getVectorSchemaRoot(sessionId);
+        IntVector keyVector = (IntVector) root.getVector("key");
+        IntVector valueVector = (IntVector) root.getVector("value");
 
         int javaUpdatedCount = 0;
-        for (Map<String, Object> row : rows) {
-            Integer key = (Integer) row.get("key");
-            Integer value = (Integer) row.get("value");
-            if (key != null && key > 500) {
-                row.put("value", value * 2);
+        for (int i = 0; i < keyVector.getValueCount(); i++) {
+            if (!keyVector.isNull(i) && keyVector.get(i) > 500) {
+                int currentValue = valueVector.get(i);
+                valueVector.set(i, currentValue * 2);
                 javaUpdatedCount++;
             }
         }
 
         long javaEnd = System.nanoTime();
         double javaTimeMs = (javaEnd - javaStart) / 1_000_000.0;
-        System.out.println("Java processing time: " + String.format("%.2f", javaTimeMs) + " ms");
+        System.out.println("Pure Java processing time: " + String.format("%.2f", javaTimeMs) + " ms");
         System.out.println("Rows updated: " + javaUpdatedCount);
 
-        // Test 2: Arrow Native approach
-        System.out.println("\n--- Arrow Native Vector Approach ---");
+        // Test 2: DuckDB SQL approach
+        System.out.println("\n--- DuckDB SQL Query Approach ---");
 
+        // Re-upload data to reset
         mockMvc.perform(post("/v1/sessions/{sessionId}/data", sessionId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk());
 
-        long arrowStart = System.nanoTime();
+        long duckdbStart = System.nanoTime();
 
-        VectorSchemaRoot root = arrowTableService.getVectorSchemaRoot(sessionId);
-        IntVector keyVector = (IntVector) root.getVector("key");
-        IntVector valueVector = (IntVector) root.getVector("value");
+        // Create DuckDB connection and register Arrow data
+        DuckDBConnection conn = (DuckDBConnection) DriverManager.getConnection("jdbc:duckdb:");
+        VectorSchemaRoot duckdbRoot = arrowTableService.getVectorSchemaRoot(sessionId);
+        conn.registerArrow("arrow_table", duckdbRoot);
 
-        int arrowUpdatedCount = 0;
-        for (int i = 0; i < keyVector.getValueCount(); i++) {
-            if (!keyVector.isNull(i) && keyVector.get(i) > 500) {
-                int currentValue = valueVector.get(i);
-                valueVector.set(i, currentValue * 2);
-                arrowUpdatedCount++;
-            }
-        }
+        // Execute UPDATE query
+        Statement stmt = conn.createStatement();
+        int duckdbUpdatedCount = stmt.executeUpdate("UPDATE arrow_table SET value = value * 2 WHERE key > 500");
+        stmt.close();
 
-        long arrowEnd = System.nanoTime();
-        double arrowTimeMs = (arrowEnd - arrowStart) / 1_000_000.0;
-        System.out.println("Arrow native processing time: " + String.format("%.2f", arrowTimeMs) + " ms");
-        System.out.println("Rows updated: " + arrowUpdatedCount);
+        // Unregister to apply changes back to Arrow
+        conn.unregisterArrow("arrow_table");
+        conn.close();
+
+        long duckdbEnd = System.nanoTime();
+        double duckdbTimeMs = (duckdbEnd - duckdbStart) / 1_000_000.0;
+        System.out.println("DuckDB processing time: " + String.format("%.2f", duckdbTimeMs) + " ms");
+        System.out.println("Rows updated: " + duckdbUpdatedCount);
 
         // Performance comparison
         System.out.println("\n=== PERFORMANCE COMPARISON ===");
-        System.out.println("Java in-memory time: " + String.format("%.2f", javaTimeMs) + " ms");
-        System.out.println("Arrow native time: " + String.format("%.2f", arrowTimeMs) + " ms");
-        double speedup = javaTimeMs / arrowTimeMs;
+        System.out.println("Pure Java time: " + String.format("%.2f", javaTimeMs) + " ms");
+        System.out.println("DuckDB time: " + String.format("%.2f", duckdbTimeMs) + " ms");
+        double speedup = javaTimeMs / duckdbTimeMs;
         System.out.println("Speedup: " + String.format("%.2fx", speedup) + " (" +
-            (speedup > 1 ? "Arrow faster" : "Java faster") + ")");
+            (speedup > 1 ? "DuckDB faster" : "Java faster") + ")");
 
         // Cleanup
         mockMvc.perform(delete("/v1/sessions/{sessionId}/data", sessionId))
