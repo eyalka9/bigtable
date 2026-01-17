@@ -13,10 +13,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import amat.arrowstore.bigtable.service.ArrowTableService;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.duckdb.DuckDBConnection;
+import org.apache.arrow.vector.ipc.ArrowFileWriter;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.sql.ResultSet;
 import java.util.*;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -107,19 +111,48 @@ public class ArrowTablePerformanceComparisonTest {
 
         long duckdbStart = System.nanoTime();
 
-        // Create DuckDB connection and register Arrow data
-        DuckDBConnection conn = (DuckDBConnection) DriverManager.getConnection("jdbc:duckdb:");
+        // Get Arrow data
         VectorSchemaRoot duckdbRoot = arrowTableService.getVectorSchemaRoot(sessionId);
-        conn.registerArrow("arrow_table", duckdbRoot);
+
+        // Write Arrow data to temporary file
+        File tempArrowFile = File.createTempFile("arrow_data", ".arrow");
+        tempArrowFile.deleteOnExit();
+        try (FileOutputStream fos = new FileOutputStream(tempArrowFile);
+             ArrowFileWriter writer = new ArrowFileWriter(duckdbRoot, null, fos.getChannel())) {
+            writer.start();
+            writer.writeBatch();
+            writer.end();
+        }
+
+        // Create DuckDB connection and load Arrow file
+        Connection conn = DriverManager.getConnection("jdbc:duckdb:");
+        Statement stmt = conn.createStatement();
+
+        // Install and load arrow extension
+        stmt.execute("INSTALL arrow");
+        stmt.execute("LOAD arrow");
+
+        // Create table from Arrow file
+        String arrowPath = tempArrowFile.getAbsolutePath().replace("\\", "/");
+        stmt.execute("CREATE TABLE arrow_table AS SELECT * FROM read_arrow_file('" + arrowPath + "')");
 
         // Execute UPDATE query
-        Statement stmt = conn.createStatement();
         int duckdbUpdatedCount = stmt.executeUpdate("UPDATE arrow_table SET value = value * 2 WHERE key > 500");
-        stmt.close();
 
-        // Unregister to apply changes back to Arrow
-        conn.unregisterArrow("arrow_table");
+        // Read results back into Arrow vectors
+        IntVector duckdbValueVector = (IntVector) duckdbRoot.getVector("value");
+        ResultSet rs = stmt.executeQuery("SELECT key, value FROM arrow_table ORDER BY ROWID");
+        int rowIdx = 0;
+        while (rs.next()) {
+            duckdbValueVector.set(rowIdx, rs.getInt("value"));
+            rowIdx++;
+        }
+        rs.close();
+
+        stmt.execute("DROP TABLE arrow_table");
+        stmt.close();
         conn.close();
+        tempArrowFile.delete();
 
         long duckdbEnd = System.nanoTime();
         double duckdbTimeMs = (duckdbEnd - duckdbStart) / 1_000_000.0;
