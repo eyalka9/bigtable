@@ -1,0 +1,43 @@
+name: Performance Comparison
+
+on:
+  push:
+    branches: [ 'claude/**' ]
+  workflow_dispatch:
+
+jobs:
+  performance-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'gradle'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Run Java vs DuckDB performance comparison test
+      run: ./gradlew test --tests "amat.arrowstore.bigtable.ArrowTablePerformanceComparisonTest.testJavaVsDuckDBPerformance" --info
+
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-test-reports
+        path: build/reports/tests/
+
+    - name: Publish test results
+      if: always()
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      with:
+        files: build/test-results/**/*.xml
