@@ -270,7 +270,11 @@ public class ArrowTableService implements TableService {
     public List<ColumnDefinition> getSchema(String sessionId) {
         return sessionSchemas.getOrDefault(sessionId, new ArrayList<>());
     }
-    
+
+    public VectorSchemaRoot getVectorSchemaRoot(String sessionId) {
+        return sessionTables.get(sessionId);
+    }
+
     @Override
     public void clearSession(String sessionId) {
         VectorSchemaRoot root = sessionTables.remove(sessionId);
