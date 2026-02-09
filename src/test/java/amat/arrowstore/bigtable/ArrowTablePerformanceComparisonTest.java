@@ -13,10 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import amat.arrowstore.bigtable.service.ArrowTableService;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ipc.ArrowFileWriter;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -114,27 +111,29 @@ public class ArrowTablePerformanceComparisonTest {
         // Get Arrow data
         VectorSchemaRoot duckdbRoot = arrowTableService.getVectorSchemaRoot(sessionId);
 
-        // Write Arrow data to temporary file
-        File tempArrowFile = File.createTempFile("arrow_data", ".arrow");
-        tempArrowFile.deleteOnExit();
-        try (FileOutputStream fos = new FileOutputStream(tempArrowFile);
-             ArrowFileWriter writer = new ArrowFileWriter(duckdbRoot, null, fos.getChannel())) {
-            writer.start();
-            writer.writeBatch();
-            writer.end();
-        }
-
-        // Create DuckDB connection and load Arrow file
+        // Create DuckDB connection
         Connection conn = DriverManager.getConnection("jdbc:duckdb:");
         Statement stmt = conn.createStatement();
 
-        // Install and load arrow extension
-        stmt.execute("INSTALL arrow");
-        stmt.execute("LOAD arrow");
+        // Create empty table
+        stmt.execute("CREATE TABLE arrow_table (key INTEGER, value INTEGER)");
 
-        // Create table from Arrow file
-        String arrowPath = tempArrowFile.getAbsolutePath().replace("\\", "/");
-        stmt.execute("CREATE TABLE arrow_table AS SELECT * FROM scan_arrow_ipc('" + arrowPath + "')");
+        // Read Arrow data directly and insert into DuckDB
+        conn.setAutoCommit(false);
+        var insertStmt = conn.prepareStatement("INSERT INTO arrow_table VALUES (?, ?)");
+        for (int i = 0; i < duckdbRoot.getRowCount(); i++) {
+            IntVector keyVec = (IntVector) duckdbRoot.getVector("key");
+            IntVector valVec = (IntVector) duckdbRoot.getVector("value");
+            insertStmt.setInt(1, keyVec.get(i));
+            insertStmt.setInt(2, valVec.get(i));
+            insertStmt.addBatch();
+            if (i % 10000 == 0) {
+                insertStmt.executeBatch();
+            }
+        }
+        insertStmt.executeBatch();
+        conn.commit();
+        insertStmt.close();
 
         // Execute UPDATE query
         int duckdbUpdatedCount = stmt.executeUpdate("UPDATE arrow_table SET value = value * 2 WHERE key > 500");
@@ -152,7 +151,6 @@ public class ArrowTablePerformanceComparisonTest {
         stmt.execute("DROP TABLE arrow_table");
         stmt.close();
         conn.close();
-        tempArrowFile.delete();
 
         long duckdbEnd = System.nanoTime();
         double duckdbTimeMs = (duckdbEnd - duckdbStart) / 1_000_000.0;
