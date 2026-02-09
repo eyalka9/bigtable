@@ -118,22 +118,17 @@ public class ArrowTablePerformanceComparisonTest {
         // Create empty table
         stmt.execute("CREATE TABLE arrow_table (key INTEGER, value INTEGER)");
 
-        // Read Arrow data directly and insert into DuckDB
-        conn.setAutoCommit(false);
-        var insertStmt = conn.prepareStatement("INSERT INTO arrow_table VALUES (?, ?)");
+        // Read Arrow data directly and insert into DuckDB using bulk INSERT
+        IntVector keyVec = (IntVector) duckdbRoot.getVector("key");
+        IntVector valVec = (IntVector) duckdbRoot.getVector("value");
+
+        // Build VALUES clause for bulk insert
+        StringBuilder bulkInsert = new StringBuilder("INSERT INTO arrow_table VALUES ");
         for (int i = 0; i < duckdbRoot.getRowCount(); i++) {
-            IntVector keyVec = (IntVector) duckdbRoot.getVector("key");
-            IntVector valVec = (IntVector) duckdbRoot.getVector("value");
-            insertStmt.setInt(1, keyVec.get(i));
-            insertStmt.setInt(2, valVec.get(i));
-            insertStmt.addBatch();
-            if (i % 10000 == 0) {
-                insertStmt.executeBatch();
-            }
+            if (i > 0) bulkInsert.append(", ");
+            bulkInsert.append("(").append(keyVec.get(i)).append(", ").append(valVec.get(i)).append(")");
         }
-        insertStmt.executeBatch();
-        conn.commit();
-        insertStmt.close();
+        stmt.execute(bulkInsert.toString());
 
         // Execute UPDATE query
         int duckdbUpdatedCount = stmt.executeUpdate("UPDATE arrow_table SET value = value * 2 WHERE key > 500");
