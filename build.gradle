@@ -73,6 +73,7 @@ test {
     useJUnitPlatform()
     jvmArgs = [
         '--add-opens=java.base/java.nio=ALL-UNNAMED',
+        '--add-modules=jdk.incubator.vector',
         '-Xmx2g',
         '-Xms1g'
     ]
