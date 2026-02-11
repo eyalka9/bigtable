@@ -41,7 +41,6 @@ dependencies {
     implementation 'org.apache.arrow:arrow-vector:14.0.1'
     implementation 'org.apache.arrow:arrow-memory-unsafe:14.0.1'
     implementation 'org.apache.arrow:arrow-dataset:14.0.1'
-    implementation 'org.apache.arrow:arrow-gandiva:14.0.1'
 
     // DuckDB
     implementation 'org.duckdb:duckdb_jdbc:0.9.2'
