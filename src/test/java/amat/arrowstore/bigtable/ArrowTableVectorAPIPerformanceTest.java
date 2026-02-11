@@ -43,6 +43,15 @@ public class ArrowTableVectorAPIPerformanceTest {
 
     @Test
     public void testJavaVsVectorAPIPerformance() throws Exception {
+        // Check if Vector API is available
+        try {
+            Class.forName("jdk.incubator.vector.IntVector");
+        } catch (ClassNotFoundException e) {
+            System.out.println("Vector API not available in this JDK, skipping test");
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "Vector API not available");
+            return;
+        }
+
         System.out.println("\n=== PURE JAVA VS VECTOR API (SIMD) PERFORMANCE COMPARISON ===");
 
         String sessionId = "vector-api-perf-test-session";
